@@ -414,8 +414,9 @@ const EventsPage: React.FC = () => {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="text">Text</SelectItem>
-                            <SelectItem value="number">Number</SelectItem>
-                            <SelectItem value="select">Dropdown Select</SelectItem>
+                            <SelectItem value="number">Number</SelectItem>                
+                            <SelectItem value="phone">Phone</SelectItem>
+                            <SelectItem value="select">Dropdown Select</SelectItem>                
                           </SelectContent>
                         </Select>
                       </div>

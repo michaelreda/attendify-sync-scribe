@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Class } from '../types';
+import { useParams } from 'react-router-dom';
+import { Class, Attendee, Event } from '../types';
 import dbService from '../services/db.service';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,126 +10,112 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
-import { PlusCircle, Users, GraduationCap, Pencil } from 'lucide-react';
+import { PlusCircle, Users, User, X, Check } from 'lucide-react';
 
-const ClassesPage: React.FC = () => {
+const RegistrationPage: React.FC = () => {
+  const { eventId } = useParams<{ eventId: string }>();
   const [classes, setClasses] = useState<Class[]>([]);
+  const [attendees, setAttendees] = useState<Attendee[]>([]);
+  const [event, setEvent] = useState<Event | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editingClass, setEditingClass] = useState<Class | null>(null);
-  
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+
   // Form state
-  const [className, setClassName] = useState('');
-  const [grade, setGrade] = useState('');
-  const [servantInput, setServantInput] = useState('');
-  const [servants, setServants] = useState<string[]>([]);
-  const [nameError, setNameError] = useState('');
-  
+  const [selectedClassId, setSelectedClassId] = useState<string | undefined>(undefined);
+  const [nameInputValue, setNameInputValue] = useState('');
+  const [nameError, setNameError] = useState<string | undefined>(undefined);
+  const [otherFields, setOtherFields] = useState<Record<string, string>>({});
+  const [otherFieldsErrors, setOtherFieldsErrors] = useState<Record<string, string>>({});
+
   useEffect(() => {
-    loadClasses();
-  }, []);
-  
-  const loadClasses = async () => {
+    if (eventId) {
+      loadData();
+    }
+  }, [eventId]);
+
+  const loadData = async () => {
     try {
       setIsLoading(true);
       const loadedClasses = await dbService.getClasses();
+      const loadedAttendees = await dbService.getAttendees(eventId!);
+      const eventData = await dbService.getEvent(eventId!);
       setClasses(loadedClasses);
+      setAttendees(loadedAttendees);
+      setEvent(eventData);
     } catch (error) {
-      console.error('Failed to load classes:', error);
+      console.error('Failed to load data:', error);
       toast({
-        title: 'Error loading classes',
-        description: 'Please try again',
+        title: 'Error',
+        description: 'Failed to load data. Please try again.',
         variant: 'destructive'
       });
     } finally {
       setIsLoading(false);
     }
   };
-  
+
   const resetForm = () => {
-    setClassName('');
-    setGrade('');
-    setServantInput('');
-    setServants([]);
-    setNameError('');
-    setEditingClass(null);
+    setSelectedClassId(undefined);
+    setNameInputValue('');
+    setNameError(undefined);
+    setOtherFields({});
+    setOtherFieldsErrors({});
   };
-  
-  const handleAddServant = () => {
-    if (servantInput.trim()) {
-      setServants(prev => [...prev, servantInput.trim()]);
-      setServantInput('');
-    }
-  };
-  
-  const handleRemoveServant = (index: number) => {
-    setServants(prev => prev.filter((_, i) => i !== index));
-  };
-  
+
   const handleSubmit = async () => {
-    // Validate
-    if (!className.trim()) {
-      setNameError('Class name is required');
+    if (!selectedClassId) {
+      toast({
+        title: 'Error',
+        description: 'Please select a class.',
+        variant: 'destructive',
+      });
       return;
     }
-    
-    try {
-      if (editingClass) {
-        // Update existing class
-        await dbService.updateClass({
-          id: editingClass.id,
-          name: className.trim(),
-          grade: grade.trim() || undefined,
-          servants: servants,
-          createdAt: editingClass.createdAt,
-          updatedAt: editingClass.updatedAt
-        });
-        
-        toast({
-          title: 'Class updated successfully',
-          description: 'The class has been updated and will sync when online'
-        });
-        
-        setEditDialogOpen(false);
-      } else {
-        // Add new class
-        await dbService.addClass({
-          name: className.trim(),
-          grade: grade.trim() || undefined,
-          servants: servants
-        });
-        
-        toast({
-          title: 'Class added successfully',
-          description: 'The class has been saved locally and will sync when online'
-        });
-        
-        setDialogOpen(false);
+
+    if (!nameInputValue.trim()) {
+      setNameError('Name is required');
+      return;
+    }
+
+    const newAttendeeValues = event?.customFields.map(field => {
+      let value = '';
+      if (field.name.toLowerCase() === 'name' || field.name.toLowerCase() === 'full name') {
+        value = nameInputValue;
+      } else if (otherFields[field.id]) {
+        value = otherFields[field.id];
       }
-      
-      resetForm();
-      loadClasses();
-    } catch (error) {
-      console.error('Failed to save class:', error);
+      return { fieldId: field.id, value };
+    }) || [];
+
+    try {
+      await dbService.addAttendee({
+        classId: selectedClassId,
+        eventId: eventId!,
+        values: newAttendeeValues,
+        attended: false,
+      });
+
       toast({
-        title: `Error ${editingClass ? 'updating' : 'adding'} class`,
-        description: 'Please try again',
+        title: 'Success',
+        description: 'Attendee registered successfully!',
+      });
+
+      resetForm();
+      setIsDialogOpen(false);
+      loadData();
+    } catch (error) {
+      console.error('Registration failed:', error);
+      toast({
+        title: 'Error',
+        description: 'Registration failed. Please try again.',
         variant: 'destructive'
       });
     }
   };
-  
-  const handleEditClass = (cls: Class) => {
-    setEditingClass(cls);
-    setClassName(cls.name);
-    setGrade(cls.grade || '');
-    setServants(cls.servants || []);
-    setEditDialogOpen(true);
-  };
-  
+
   const formatDate = (dateString: string) => {
     try {
       return format(new Date(dateString), 'PPP');
@@ -136,233 +123,189 @@ const ClassesPage: React.FC = () => {
       return 'Invalid date';
     }
   };
+
+  const handleInputChange = (fieldId: string, value: string) => {
+    setOtherFields(prev => ({
+      ...prev,
+      [fieldId]: value,
+    }));
   
-  // Class Form Dialog content shared between Add and Edit modes
-  const ClassFormContent = () => (
+    setOtherFieldsErrors(prev => ({
+      ...prev,
+      [fieldId]: undefined,
+    }));
+  };
+
+  const validateField = (fieldId: string, value: string, required: boolean) => {
+    if (required && !value.trim()) {
+      setOtherFieldsErrors(prev => ({
+        ...prev,
+        [fieldId]: 'This field is required',
+      }));
+      return false;
+    }
+    return true;
+  };
+
+  const handleNameInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setNameInputValue(e.target.value);
+    setNameError(undefined);
+  };
+
+  const validateName = () => {
+    if (!nameInputValue.trim()) {
+      setNameError('Name is required');
+      return false;
+    }
+    return true;
+  };
+
+  const renderAttendeeRow = (attendee: Attendee) => {
+    const attendeeClass = classes.find(cls => cls.id === attendee.classId);
+    const nameFieldValue = attendee.values.find(v =>
+      event?.customFields.some(f =>
+        (f.name.toLowerCase() === 'name' || f.name.toLowerCase() === 'full name') && f.id === v.fieldId
+      )
+    )?.value;
+  
+    return (
+      <div key={attendee.id} className="flex items-center justify-between py-2">
+        <div className="flex items-center">
+          <User className="h-5 w-5 mr-2" />
+          <span>{nameFieldValue || 'Unnamed Attendee'}</span>
+        </div>
+        {attendeeClass ? (
+          <Badge variant="secondary">{attendeeClass.name}</Badge>
+        ) : (
+          <Badge variant="outline">Class not found</Badge>
+        )}
+      </div>
+    );
+  };
+
+  const renderAttendeeForm = () => (
     <>
       <div className="grid gap-4 py-4">
         <div className="grid gap-2">
-          <Label htmlFor="className">Class Name</Label>
+          <Label htmlFor="className">Class</Label>
+          <Select onValueChange={setSelectedClassId} value={selectedClassId}>
+            <SelectTrigger id="class">
+              <SelectValue placeholder="Select a class" />
+            </SelectTrigger>
+            <SelectContent>
+              {classes.map((cls) => (
+                <SelectItem key={cls.id} value={cls.id}>
+                  {cls.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="name">Name</Label>
           <Input
-            id="className"
-            value={className}
-            onChange={(e) => {
-              setClassName(e.target.value);
-              setNameError('');
-            }}
-            placeholder="Enter class name"
+            id="name"
+            value={nameInputValue}
+            onChange={handleNameInputChange}
+            placeholder="Enter attendee name"
           />
           {nameError && <p className="text-destructive text-sm">{nameError}</p>}
         </div>
-        
-        <div className="grid gap-2">
-          <Label htmlFor="grade">Grade (Optional)</Label>
-          <Input
-            id="grade"
-            value={grade}
-            onChange={(e) => setGrade(e.target.value)}
-            placeholder="Enter grade (e.g., 1st, 2nd, 3rd)"
-          />
-        </div>
-        
-        <div className="grid gap-2">
-          <Label htmlFor="servants">Servants</Label>
-          <div className="flex space-x-2">
-            <Input
-              id="servants"
-              value={servantInput}
-              onChange={(e) => setServantInput(e.target.value)}
-              placeholder="Add servant name"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleAddServant();
-                }
-              }}
-            />
-            <Button 
-              type="button" 
-              variant="secondary" 
-              onClick={handleAddServant}
-            >
-              Add
-            </Button>
-          </div>
-        </div>
-        
-        {servants.length > 0 && (
-          <div className="grid gap-2">
-            <Label>Added Servants</Label>
-            <div className="flex flex-wrap gap-2 py-2">
-              {servants.map((servant, index) => (
-                <Badge 
-                  key={index} 
-                  variant="secondary"
-                  className="flex items-center gap-1"
-                >
-                  {servant}
-                  <button
-                    onClick={() => handleRemoveServant(index)}
-                    className="ml-1 rounded-full w-4 h-4 inline-flex items-center justify-center hover:bg-attendify-300 transition-colors"
-                  >
-                    ×
-                  </button>
-                </Badge>
-              ))}
+
+        {event?.customFields
+          .filter(field => field.name.toLowerCase() !== 'name' && field.name.toLowerCase() !== 'full name')
+          .map(field => (
+            <div className="grid gap-2" key={field.id}>
+              <Label htmlFor={`field-${field.id}`}>{field.name} {field.required ? '*' : ''}</Label>
+              <Input
+                id={`field-${field.id}`}
+                value={otherFields[field.id] || ''}
+                onChange={(e) => handleInputChange(field.id, e.target.value)}
+                placeholder={`Enter ${field.name.toLowerCase()}`}
+                onBlur={() => validateField(field.id, otherFields[field.id] || '', field.required)}
+              />
+              {otherFieldsErrors[field.id] && <p className="text-destructive text-sm">{otherFieldsErrors[field.id]}</p>}
             </div>
-          </div>
-        )}
+          ))
+        }
       </div>
     </>
   );
-  
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Classes</h1>
-          <p className="text-muted-foreground">Manage your classes and servants</p>
+          <h1 className="text-2xl font-bold tracking-tight">Event Registration</h1>
+          {event && (
+            <p className="text-muted-foreground">
+              Register attendees for {event.name} on {formatDate(event.date)}
+            </p>
+          )}
         </div>
-        
-        {/* Add Class Dialog */}
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button className="bg-attendify-600 hover:bg-attendify-700">
               <PlusCircle className="mr-2 h-4 w-4" />
-              Add Class
+              Register Attendee
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
-              <DialogTitle>Add a New Class</DialogTitle>
+              <DialogTitle>Register New Attendee</DialogTitle>
               <DialogDescription>
-                Create a new class with grade and servants
+                Register a new attendee for this event
               </DialogDescription>
             </DialogHeader>
-            
-            <ClassFormContent />
-            
+
+            {renderAttendeeForm()}
+
             <DialogFooter>
               <Button variant="outline" onClick={() => {
                 resetForm();
-                setDialogOpen(false);
+                setIsDialogOpen(false);
               }}>
                 Cancel
               </Button>
-              <Button 
-                onClick={handleSubmit}
-                className="bg-attendify-600 hover:bg-attendify-700"
-              >
-                Save Class
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        
-        {/* Edit Class Dialog */}
-        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Edit Class</DialogTitle>
-              <DialogDescription>
-                Update class information
-              </DialogDescription>
-            </DialogHeader>
-            
-            <ClassFormContent />
-            
-            <DialogFooter>
-              <Button variant="outline" onClick={() => {
-                resetForm();
-                setEditDialogOpen(false);
-              }}>
-                Cancel
-              </Button>
-              <Button 
-                onClick={handleSubmit}
-                className="bg-attendify-600 hover:bg-attendify-700"
-              >
-                Update Class
+              <Button onClick={handleSubmit} className="bg-attendify-600 hover:bg-attendify-700">
+                Register Attendee
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
-      
+
       <Separator />
-      
+
       {isLoading ? (
         <div className="flex justify-center items-center h-40">
-          <div className="animate-pulse text-attendify-600">Loading classes...</div>
+          <div className="animate-pulse text-attendify-600">Loading data...</div>
         </div>
-      ) : classes.length === 0 ? (
+      ) : attendees.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center h-40 p-6">
-            <Users className="h-12 w-12 text-attendify-400 mb-4" />
+            <User className="h-12 w-12 text-attendify-400 mb-4" />
             <CardDescription className="text-center">
-              No classes found. Add your first class to get started.
+              No attendees registered for this event yet.
             </CardDescription>
             <Button
               className="mt-4 bg-attendify-600 hover:bg-attendify-700"
-              onClick={() => setDialogOpen(true)}
+              onClick={() => setIsDialogOpen(true)}
             >
               <PlusCircle className="mr-2 h-4 w-4" />
-              Add First Class
+              Register First Attendee
             </Button>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {classes.map((cls) => (
-            <Card key={cls.id} className="transition-all hover:shadow-md">
-              <CardHeader className="pb-3">
-                <div className="flex justify-between items-start">
-                  <CardTitle className="text-lg font-semibold flex items-center">
-                    {cls.name}
-                    {cls.grade && (
-                      <Badge variant="outline" className="bg-attendify-50 ml-2 flex items-center">
-                        <GraduationCap className="h-3 w-3 mr-1" />
-                        {cls.grade}
-                      </Badge>
-                    )}
-                  </CardTitle>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleEditClass(cls);
-                    }}
-                    className="h-8 w-8 rounded-full"
-                  >
-                    <Pencil className="h-4 w-4" />
-                    <span className="sr-only">Edit</span>
-                  </Button>
-                </div>
-                <CardDescription>Created on {formatDate(cls.createdAt)}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <h4 className="text-sm font-medium mb-2">Servants:</h4>
-                {cls.servants.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No servants assigned</p>
-                ) : (
-                  <ScrollArea className="h-24">
-                    <div className="flex flex-wrap gap-2">
-                      {cls.servants.map((servant, i) => (
-                        <Badge key={i} variant="outline" className="bg-attendify-50">
-                          {servant}
-                        </Badge>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+        <div className="space-y-4">
+          {attendees.map(renderAttendeeRow)}
         </div>
       )}
     </div>
   );
 };
 
-export default ClassesPage;
+export default RegistrationPage;

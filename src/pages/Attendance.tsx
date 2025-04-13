@@ -357,20 +357,26 @@ const AttendancePage: React.FC = () => {
                           );
                         })}
 
-                      {/* Phone fields with contact buttons */}
-                      {phoneFields.map(field => {
-                        const phoneValue = getAttendeeValue(attendee, field.id);
-                        if (!phoneValue) return null;
-                        
-                        return (
-                          <div key={field.id} className="mt-1">
-                            <div>
-                              <span className="font-medium">{field.name}:</span> {phoneValue}
-                            </div>
-                            <ContactButtons phoneNumber={phoneValue} />
-                          </div>
-                        );
-                      })}
+                        {/* Display phone fields and contact buttons */}
+                        {event.customFields
+                          .filter(isPhoneField)
+                          .map(field => {
+                            const phoneValue = getAttendeeValue(attendee, field.id);
+                            if (!phoneValue) return null;
+
+                            return (
+                              <div key={field.id} className="flex items-center mt-1">
+                                <div>
+                                  <span className="font-medium">{field.name}:</span> {phoneValue}
+                                </div>
+                                <div className="ml-2">
+                                  <ContactButtons phoneNumber={phoneValue} />
+                                </div>
+                              </div>
+                            );
+                          })
+                        }
+
                     </div>
                   </div>
                   
