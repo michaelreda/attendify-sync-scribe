@@ -10,13 +10,13 @@ export interface SyncInfo {
 export interface Class {
   id: string;
   name: string;
-  grade?: string; // Adding optional grade field
+  grade?: string;
   servants: string[];
   createdAt: string;
   updatedAt: string;
 }
 
-export type FieldType = 'text' | 'number' | 'select';
+export type FieldType = 'text' | 'number' | 'select' | 'phone';
 
 export interface CustomField {
   id: string;

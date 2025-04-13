@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { Event, Attendee, Class, CustomField } from '../types';
@@ -10,11 +11,18 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/ui/use-toast';
 import { ArrowLeft, Calendar, Search, CheckCircle, XCircle, UserCheck, GraduationCap, Users, UserPlus } from 'lucide-react';
 import { format } from 'date-fns';
+import EventSelectionPage from '@/components/EventSelectionPage';
+import ContactButtons from '@/components/ContactButtons';
 
 // Helper function to get value from an attendee's values by field ID
 const getAttendeeValue = (attendee: Attendee, fieldId: string): string => {
   const valueObj = attendee.values.find(v => v.fieldId === fieldId);
   return valueObj ? String(valueObj.value) : '';
+};
+
+// Helper function to check if a field is a phone field
+const isPhoneField = (field: CustomField): boolean => {
+  return field.type === 'phone';
 };
 
 const AttendancePage: React.FC = () => {
@@ -27,6 +35,7 @@ const AttendancePage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [nameFieldId, setNameFieldId] = useState<string | null>(null);
+  const [phoneFields, setPhoneFields] = useState<CustomField[]>([]);
   
   useEffect(() => {
     // If no eventId is provided, redirect to event selection
@@ -62,6 +71,10 @@ const AttendancePage: React.FC = () => {
         if (nameField) {
           setNameFieldId(nameField.id);
         }
+        
+        // Find phone fields
+        const phoneFieldsList = eventData.customFields.filter(field => field.type === 'phone');
+        setPhoneFields(phoneFieldsList);
         
         // Load attendees for this event
         const attendeesData = await dbService.getAttendees(eventId);
@@ -329,7 +342,10 @@ const AttendancePage: React.FC = () => {
                     
                     <div className="mt-2 text-sm text-muted-foreground space-y-1">
                       {event.customFields
-                        .filter(field => field.id !== nameFieldId) // Skip name field as it's already shown
+                        .filter(field => {
+                          // Skip name field as it's already shown and skip phone fields as they are handled separately
+                          return field.id !== nameFieldId && field.type !== 'phone';
+                        })
                         .map(field => {
                           const value = getAttendeeValue(attendee, field.id);
                           if (!value) return null;
@@ -340,6 +356,21 @@ const AttendancePage: React.FC = () => {
                             </div>
                           );
                         })}
+
+                      {/* Phone fields with contact buttons */}
+                      {phoneFields.map(field => {
+                        const phoneValue = getAttendeeValue(attendee, field.id);
+                        if (!phoneValue) return null;
+                        
+                        return (
+                          <div key={field.id} className="mt-1">
+                            <div>
+                              <span className="font-medium">{field.name}:</span> {phoneValue}
+                            </div>
+                            <ContactButtons phoneNumber={phoneValue} />
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                   
