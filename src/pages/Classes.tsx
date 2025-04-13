@@ -12,7 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
-import { PlusCircle, Users } from 'lucide-react';
+import { PlusCircle, Users, GraduationCap } from 'lucide-react';
 
 const ClassesPage: React.FC = () => {
   const [classes, setClasses] = useState<Class[]>([]);
@@ -21,6 +21,7 @@ const ClassesPage: React.FC = () => {
   
   // Form state
   const [className, setClassName] = useState('');
+  const [grade, setGrade] = useState('');
   const [servantInput, setServantInput] = useState('');
   const [servants, setServants] = useState<string[]>([]);
   const [nameError, setNameError] = useState('');
@@ -48,6 +49,7 @@ const ClassesPage: React.FC = () => {
   
   const resetForm = () => {
     setClassName('');
+    setGrade('');
     setServantInput('');
     setServants([]);
     setNameError('');
@@ -74,6 +76,7 @@ const ClassesPage: React.FC = () => {
     try {
       await dbService.addClass({
         name: className.trim(),
+        grade: grade.trim() || undefined,
         servants: servants
       });
       
@@ -122,7 +125,7 @@ const ClassesPage: React.FC = () => {
             <DialogHeader>
               <DialogTitle>Add a New Class</DialogTitle>
               <DialogDescription>
-                Create a new class with servants
+                Create a new class with grade and servants
               </DialogDescription>
             </DialogHeader>
             
@@ -139,6 +142,16 @@ const ClassesPage: React.FC = () => {
                   placeholder="Enter class name"
                 />
                 {nameError && <p className="text-destructive text-sm">{nameError}</p>}
+              </div>
+              
+              <div className="grid gap-2">
+                <Label htmlFor="grade">Grade (Optional)</Label>
+                <Input
+                  id="grade"
+                  value={grade}
+                  onChange={(e) => setGrade(e.target.value)}
+                  placeholder="Enter grade (e.g., 1st, 2nd, 3rd)"
+                />
               </div>
               
               <div className="grid gap-2">
@@ -235,7 +248,15 @@ const ClassesPage: React.FC = () => {
           {classes.map((cls) => (
             <Card key={cls.id} className="transition-all hover:shadow-md">
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg font-semibold">{cls.name}</CardTitle>
+                <CardTitle className="text-lg font-semibold flex items-center">
+                  {cls.name}
+                  {cls.grade && (
+                    <Badge variant="outline" className="bg-attendify-50 ml-2 flex items-center">
+                      <GraduationCap className="h-3 w-3 mr-1" />
+                      {cls.grade}
+                    </Badge>
+                  )}
+                </CardTitle>
                 <CardDescription>Created on {formatDate(cls.createdAt)}</CardDescription>
               </CardHeader>
               <CardContent>

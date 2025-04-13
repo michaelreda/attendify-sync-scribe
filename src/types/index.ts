@@ -10,6 +10,7 @@ export interface SyncInfo {
 export interface Class {
   id: string;
   name: string;
+  grade?: string; // Adding optional grade field
   servants: string[];
   createdAt: string;
   updatedAt: string;

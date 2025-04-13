@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/ui/use-toast';
-import { ArrowLeft, Calendar, Search, CheckCircle, XCircle, UserCheck } from 'lucide-react';
+import { ArrowLeft, Calendar, Search, CheckCircle, XCircle, UserCheck, GraduationCap, Users } from 'lucide-react';
 import { format } from 'date-fns';
 
 // Helper function to get value from an attendee's values by field ID
@@ -275,67 +275,89 @@ const AttendancePage: React.FC = () => {
         </Card>
       ) : (
         <div className="space-y-4">
-          {filteredAttendees.map(attendee => (
-            <div 
-              key={attendee.id}
-              className={`p-4 rounded-lg border transition-colors ${
-                attendee.attended 
-                  ? 'bg-attendify-50 border-attendify-200' 
-                  : 'bg-white border-gray-200'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-medium">
-                    {getAttendeeDisplayName(attendee)}
-                    <Badge 
-                      variant="outline" 
-                      className="ml-2 bg-attendify-50 text-xs"
-                    >
-                      {classes[attendee.classId]?.name || 'Unknown Class'}
-                    </Badge>
-                  </h3>
-                  
-                  <div className="mt-1 text-sm text-muted-foreground space-y-1">
-                    {event.customFields
-                      .filter(field => field.id !== nameFieldId) // Skip name field as it's already shown
-                      .map(field => {
-                        const value = getAttendeeValue(attendee, field.id);
-                        if (!value) return null;
-                        
-                        return (
-                          <div key={field.id}>
-                            <span className="font-medium">{field.name}:</span> {value}
-                          </div>
-                        );
-                      })}
+          {filteredAttendees.map(attendee => {
+            const attendeeClass = classes[attendee.classId];
+            
+            return (
+              <div 
+                key={attendee.id}
+                className={`p-4 rounded-lg border transition-colors ${
+                  attendee.attended 
+                    ? 'bg-attendify-50 border-attendify-200' 
+                    : 'bg-white border-gray-200'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <h3 className="font-medium">
+                      {getAttendeeDisplayName(attendee)}
+                    </h3>
+                    
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {attendeeClass && (
+                        <Badge 
+                          variant="outline" 
+                          className="bg-attendify-50 text-xs flex items-center"
+                        >
+                          <Users className="h-3 w-3 mr-1" />
+                          {attendeeClass.name}
+                          {attendeeClass.grade && (
+                            <span className="ml-1 flex items-center">
+                              <GraduationCap className="h-3 w-3 mx-1" />
+                              {attendeeClass.grade}
+                            </span>
+                          )}
+                        </Badge>
+                      )}
+                    </div>
+                    
+                    {attendeeClass && attendeeClass.servants.length > 0 && (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        <span className="font-medium">Servants:</span> {attendeeClass.servants.join(', ')}
+                      </div>
+                    )}
+                    
+                    <div className="mt-2 text-sm text-muted-foreground space-y-1">
+                      {event.customFields
+                        .filter(field => field.id !== nameFieldId) // Skip name field as it's already shown
+                        .map(field => {
+                          const value = getAttendeeValue(attendee, field.id);
+                          if (!value) return null;
+                          
+                          return (
+                            <div key={field.id}>
+                              <span className="font-medium">{field.name}:</span> {value}
+                            </div>
+                          );
+                        })}
+                    </div>
                   </div>
+                  
+                  <Button
+                    variant={attendee.attended ? "default" : "outline"}
+                    size="sm"
+                    className={attendee.attended 
+                      ? "bg-green-600 hover:bg-green-700" 
+                      : "text-muted-foreground"
+                    }
+                    onClick={() => handleAttendanceToggle(attendee.id, attendee.attended)}
+                  >
+                    {attendee.attended ? (
+                      <>
+                        <CheckCircle className="mr-1 h-4 w-4" />
+                        Present
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="mr-1 h-4 w-4" />
+                        Mark Present
+                      </>
+                    )}
+                  </Button>
                 </div>
-                
-                <Button
-                  variant={attendee.attended ? "default" : "outline"}
-                  size="sm"
-                  className={attendee.attended 
-                    ? "bg-green-600 hover:bg-green-700" 
-                    : "text-muted-foreground"
-                  }
-                  onClick={() => handleAttendanceToggle(attendee.id, attendee.attended)}
-                >
-                  {attendee.attended ? (
-                    <>
-                      <CheckCircle className="mr-1 h-4 w-4" />
-                      Present
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="mr-1 h-4 w-4" />
-                      Mark Present
-                    </>
-                  )}
-                </Button>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
