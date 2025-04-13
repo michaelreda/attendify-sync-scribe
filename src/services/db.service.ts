@@ -1,4 +1,3 @@
-
 import { v4 as uuidv4 } from 'uuid';
 import { Class, Event, Attendee, SyncInfo } from '../types';
 
@@ -177,6 +176,55 @@ export class DbService {
       };
 
       transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
+  public async updateClass(classData: Omit<Class, 'createdAt'>): Promise<Class> {
+    if (!this.db) await this.initDatabase();
+    
+    const now = new Date().toISOString();
+    const updatedClass: Class = {
+      ...classData,
+      updatedAt: now
+    };
+
+    return new Promise(async (resolve, reject) => {
+      // First check if the class exists
+      const existingClass = await this.getClass(classData.id);
+      if (!existingClass) {
+        return reject(new Error('Class not found'));
+      }
+
+      const transaction = this.db!.transaction(['classes', 'syncQueue'], 'readwrite');
+      const store = transaction.objectStore('classes');
+      const syncStore = transaction.objectStore('syncQueue');
+      
+      store.put(updatedClass);
+      syncStore.add({
+        type: 'updateClass',
+        data: updatedClass,
+        timestamp: now
+      });
+
+      transaction.oncomplete = () => {
+        this.updatePendingChangesCount(this.currentSyncInfo.pendingChanges + 1);
+        if (navigator.onLine) this.syncWithServer();
+        resolve(updatedClass);
+      };
+
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
+  public async getClass(id: string): Promise<Class | null> {
+    if (!this.db) await this.initDatabase();
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['classes'], 'readonly');
+      const store = transaction.objectStore('classes');
+      const request = store.get(id);
+
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
     });
   }
 

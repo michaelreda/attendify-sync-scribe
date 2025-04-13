@@ -1,158 +1,132 @@
-
 import React, { useEffect, useState } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
-import { Event, Class, CustomField, AttendeeValue } from '../types';
+import { Class } from '../types';
 import dbService from '../services/db.service';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/ui/use-toast';
-import { ArrowLeft, Calendar, ClipboardList } from 'lucide-react';
 import { format } from 'date-fns';
+import { PlusCircle, Users, GraduationCap, Pencil } from 'lucide-react';
 
-const RegistrationPage: React.FC = () => {
-  const { eventId } = useParams<{ eventId: string }>();
-  const navigate = useNavigate();
-  const [event, setEvent] = useState<Event | null>(null);
+const ClassesPage: React.FC = () => {
   const [classes, setClasses] = useState<Class[]>([]);
-  const [selectedClass, setSelectedClass] = useState<string>('');
-  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingClass, setEditingClass] = useState<Class | null>(null);
+  
+  // Form state
+  const [className, setClassName] = useState('');
+  const [grade, setGrade] = useState('');
+  const [servantInput, setServantInput] = useState('');
+  const [servants, setServants] = useState<string[]>([]);
+  const [nameError, setNameError] = useState('');
   
   useEffect(() => {
-    // If no eventId is provided, redirect to event selection
-    if (!eventId) {
-      navigate('/register');
-      return;
-    }
-    
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
-        
-        // Load the event details
-        const eventData = await dbService.getEvent(eventId);
-        if (!eventData) {
-          toast({
-            title: 'Event not found',
-            description: 'The requested event does not exist',
-            variant: 'destructive'
-          });
-          navigate('/register');
-          return;
-        }
-        
-        setEvent(eventData);
-        
-        // Load available classes
-        const classesData = await dbService.getClasses();
-        setClasses(classesData);
-        
-        // Set first class as default if available
-        if (classesData.length > 0) {
-          setSelectedClass(classesData[0].id);
-        }
-      } catch (error) {
-        console.error('Failed to load data:', error);
-        toast({
-          title: 'Error loading data',
-          description: 'Please try again',
-          variant: 'destructive'
-        });
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    loadData();
-  }, [eventId, navigate]);
+    loadClasses();
+  }, []);
   
-  const handleInputChange = (fieldId: string, value: string) => {
-    setFieldValues(prev => ({
-      ...prev,
-      [fieldId]: value
-    }));
-    
-    // Clear error when user types
-    if (errors[fieldId]) {
-      setErrors(prev => {
-        const newErrors = { ...prev };
-        delete newErrors[fieldId];
-        return newErrors;
-      });
-    }
-  };
-  
-  const validateForm = (): boolean => {
-    const newErrors: Record<string, string> = {};
-    
-    // Validate class selection
-    if (!selectedClass) {
-      newErrors['class'] = 'Please select a class';
-    }
-    
-    // Validate all required fields
-    event?.customFields.forEach(field => {
-      if (field.required && (!fieldValues[field.id] || fieldValues[field.id].trim() === '')) {
-        newErrors[field.id] = `${field.name} is required`;
-      } else if (field.type === 'number' && fieldValues[field.id] && isNaN(Number(fieldValues[field.id]))) {
-        newErrors[field.id] = `${field.name} must be a number`;
-      }
-    });
-    
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-  
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
-    
+  const loadClasses = async () => {
     try {
-      setIsSubmitting(true);
-      
-      // Format the values for the attendee
-      const values: AttendeeValue[] = Object.entries(fieldValues).map(([fieldId, value]) => {
-        const field = event!.customFields.find(f => f.id === fieldId);
-        return {
-          fieldId,
-          value: field?.type === 'number' ? Number(value) : value
-        };
-      });
-      
-      // Save the attendee
-      await dbService.addAttendee({
-        eventId: eventId!,
-        classId: selectedClass,
-        values,
-        attended: false // Default to not attended
-      });
-      
-      toast({
-        title: 'Registration successful',
-        description: 'The attendee has been registered'
-      });
-      
-      // Clear form for next registration
-      setFieldValues({});
+      setIsLoading(true);
+      const loadedClasses = await dbService.getClasses();
+      setClasses(loadedClasses);
     } catch (error) {
-      console.error('Failed to register attendee:', error);
+      console.error('Failed to load classes:', error);
       toast({
-        title: 'Registration failed',
+        title: 'Error loading classes',
         description: 'Please try again',
         variant: 'destructive'
       });
     } finally {
-      setIsSubmitting(false);
+      setIsLoading(false);
     }
+  };
+  
+  const resetForm = () => {
+    setClassName('');
+    setGrade('');
+    setServantInput('');
+    setServants([]);
+    setNameError('');
+    setEditingClass(null);
+  };
+  
+  const handleAddServant = () => {
+    if (servantInput.trim()) {
+      setServants(prev => [...prev, servantInput.trim()]);
+      setServantInput('');
+    }
+  };
+  
+  const handleRemoveServant = (index: number) => {
+    setServants(prev => prev.filter((_, i) => i !== index));
+  };
+  
+  const handleSubmit = async () => {
+    // Validate
+    if (!className.trim()) {
+      setNameError('Class name is required');
+      return;
+    }
+    
+    try {
+      if (editingClass) {
+        // Update existing class
+        await dbService.updateClass({
+          id: editingClass.id,
+          name: className.trim(),
+          grade: grade.trim() || undefined,
+          servants: servants,
+          createdAt: editingClass.createdAt,
+          updatedAt: editingClass.updatedAt
+        });
+        
+        toast({
+          title: 'Class updated successfully',
+          description: 'The class has been updated and will sync when online'
+        });
+        
+        setEditDialogOpen(false);
+      } else {
+        // Add new class
+        await dbService.addClass({
+          name: className.trim(),
+          grade: grade.trim() || undefined,
+          servants: servants
+        });
+        
+        toast({
+          title: 'Class added successfully',
+          description: 'The class has been saved locally and will sync when online'
+        });
+        
+        setDialogOpen(false);
+      }
+      
+      resetForm();
+      loadClasses();
+    } catch (error) {
+      console.error('Failed to save class:', error);
+      toast({
+        title: `Error ${editingClass ? 'updating' : 'adding'} class`,
+        description: 'Please try again',
+        variant: 'destructive'
+      });
+    }
+  };
+  
+  const handleEditClass = (cls: Class) => {
+    setEditingClass(cls);
+    setClassName(cls.name);
+    setGrade(cls.grade || '');
+    setServants(cls.servants || []);
+    setEditDialogOpen(true);
   };
   
   const formatDate = (dateString: string) => {
@@ -163,283 +137,227 @@ const RegistrationPage: React.FC = () => {
     }
   };
   
-  // This is the event selection page shown when no event is specified
-  if (!eventId) {
-    return <EventSelectionPage />;
-  }
-  
-  if (isLoading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-pulse text-attendify-600">Loading registration form...</div>
-      </div>
-    );
-  }
-  
-  if (!event) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center space-x-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate('/register')}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Events
-          </Button>
+  // Class Form Dialog content shared between Add and Edit modes
+  const ClassFormContent = () => (
+    <>
+      <div className="grid gap-4 py-4">
+        <div className="grid gap-2">
+          <Label htmlFor="className">Class Name</Label>
+          <Input
+            id="className"
+            value={className}
+            onChange={(e) => {
+              setClassName(e.target.value);
+              setNameError('');
+            }}
+            placeholder="Enter class name"
+          />
+          {nameError && <p className="text-destructive text-sm">{nameError}</p>}
         </div>
         
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center h-40 p-6">
-            <CardDescription className="text-center">
-              Event not found or has been deleted.
-            </CardDescription>
-            <Button
-              className="mt-4"
-              onClick={() => navigate('/register')}
+        <div className="grid gap-2">
+          <Label htmlFor="grade">Grade (Optional)</Label>
+          <Input
+            id="grade"
+            value={grade}
+            onChange={(e) => setGrade(e.target.value)}
+            placeholder="Enter grade (e.g., 1st, 2nd, 3rd)"
+          />
+        </div>
+        
+        <div className="grid gap-2">
+          <Label htmlFor="servants">Servants</Label>
+          <div className="flex space-x-2">
+            <Input
+              id="servants"
+              value={servantInput}
+              onChange={(e) => setServantInput(e.target.value)}
+              placeholder="Add servant name"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleAddServant();
+                }
+              }}
+            />
+            <Button 
+              type="button" 
+              variant="secondary" 
+              onClick={handleAddServant}
             >
-              Return to Event Selection
+              Add
             </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-  
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center space-x-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => navigate('/register')}
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Events
-        </Button>
-      </div>
-      
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Attendee Registration</h1>
-        <p className="text-muted-foreground">Register attendees for {event.name}</p>
-      </div>
-      
-      <Card>
-        <CardHeader>
-          <CardTitle>{event.name}</CardTitle>
-          <CardDescription>
-            {formatDate(event.date)}
-            {event.location && ` • ${event.location}`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="class">Select Class</Label>
-                <Select
-                  value={selectedClass}
-                  onValueChange={setSelectedClass}
+          </div>
+        </div>
+        
+        {servants.length > 0 && (
+          <div className="grid gap-2">
+            <Label>Added Servants</Label>
+            <div className="flex flex-wrap gap-2 py-2">
+              {servants.map((servant, index) => (
+                <Badge 
+                  key={index} 
+                  variant="secondary"
+                  className="flex items-center gap-1"
                 >
-                  <SelectTrigger
-                    id="class"
-                    className={errors['class'] ? 'border-destructive' : ''}
+                  {servant}
+                  <button
+                    onClick={() => handleRemoveServant(index)}
+                    className="ml-1 rounded-full w-4 h-4 inline-flex items-center justify-center hover:bg-attendify-300 transition-colors"
                   >
-                    <SelectValue placeholder="Select a class" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {classes.length === 0 ? (
-                      <SelectItem value="no-classes" disabled>
-                        No classes available
-                      </SelectItem>
-                    ) : (
-                      classes.map(cls => (
-                        <SelectItem key={cls.id} value={cls.id}>
-                          {cls.name}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-                {errors['class'] && (
-                  <p className="text-destructive text-sm">{errors['class']}</p>
-                )}
-                {classes.length === 0 && (
-                  <p className="text-amber-600 text-sm">
-                    No classes available. 
-                    <Link to="/classes" className="ml-1 underline">
-                      Add a class first
-                    </Link>
-                  </p>
-                )}
-              </div>
-              
-              <Separator />
-              
-              {event.customFields.map(field => (
-                <div key={field.id} className="space-y-2">
-                  <Label htmlFor={field.id}>
-                    {field.name}
-                    {field.required && <span className="text-destructive ml-1">*</span>}
-                  </Label>
-                  
-                  {field.type === 'text' && (
-                    <Input
-                      id={field.id}
-                      value={fieldValues[field.id] || ''}
-                      onChange={e => handleInputChange(field.id, e.target.value)}
-                      placeholder={`Enter ${field.name.toLowerCase()}`}
-                      className={errors[field.id] ? 'border-destructive' : ''}
-                    />
-                  )}
-                  
-                  {field.type === 'number' && (
-                    <Input
-                      id={field.id}
-                      type="number"
-                      value={fieldValues[field.id] || ''}
-                      onChange={e => handleInputChange(field.id, e.target.value)}
-                      placeholder={`Enter ${field.name.toLowerCase()}`}
-                      className={errors[field.id] ? 'border-destructive' : ''}
-                    />
-                  )}
-                  
-                  {field.type === 'select' && field.options && (
-                    <Select
-                      value={fieldValues[field.id] || ''}
-                      onValueChange={value => handleInputChange(field.id, value)}
-                    >
-                      <SelectTrigger
-                        id={field.id}
-                        className={errors[field.id] ? 'border-destructive' : ''}
-                      >
-                        <SelectValue placeholder={`Select ${field.name.toLowerCase()}`} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {field.options.map(option => (
-                          <SelectItem key={option} value={option}>
-                            {option}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  
-                  {errors[field.id] && (
-                    <p className="text-destructive text-sm">{errors[field.id]}</p>
-                  )}
-                </div>
+                    ×
+                  </button>
+                </Badge>
               ))}
             </div>
-            
-            <div className="flex justify-end space-x-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setFieldValues({});
-                  setErrors({});
-                }}
-              >
-                Clear Form
-              </Button>
-              <Button 
-                type="submit"
-                className="bg-attendify-600 hover:bg-attendify-700"
-                disabled={isSubmitting || classes.length === 0}
-              >
-                {isSubmitting ? 'Registering...' : 'Register Attendee'}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+          </div>
+        )}
+      </div>
+    </>
   );
-};
-
-// This component is shown when no event is selected
-const EventSelectionPage: React.FC = () => {
-  const [events, setEvents] = useState<Event[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  
-  useEffect(() => {
-    const loadEvents = async () => {
-      try {
-        setIsLoading(true);
-        const eventsData = await dbService.getEvents();
-        setEvents(eventsData);
-      } catch (error) {
-        console.error('Failed to load events:', error);
-        toast({
-          title: 'Error loading events',
-          description: 'Please try again',
-          variant: 'destructive'
-        });
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    loadEvents();
-  }, []);
-  
-  const formatDate = (dateString: string) => {
-    try {
-      return format(new Date(dateString), 'PPP');
-    } catch (e) {
-      return 'Invalid date';
-    }
-  };
   
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Register Attendees</h1>
-        <p className="text-muted-foreground">Select an event to register attendees</p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Classes</h1>
+          <p className="text-muted-foreground">Manage your classes and servants</p>
+        </div>
+        
+        {/* Add Class Dialog */}
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button className="bg-attendify-600 hover:bg-attendify-700">
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Add Class
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Add a New Class</DialogTitle>
+              <DialogDescription>
+                Create a new class with grade and servants
+              </DialogDescription>
+            </DialogHeader>
+            
+            <ClassFormContent />
+            
+            <DialogFooter>
+              <Button variant="outline" onClick={() => {
+                resetForm();
+                setDialogOpen(false);
+              }}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleSubmit}
+                className="bg-attendify-600 hover:bg-attendify-700"
+              >
+                Save Class
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        
+        {/* Edit Class Dialog */}
+        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Edit Class</DialogTitle>
+              <DialogDescription>
+                Update class information
+              </DialogDescription>
+            </DialogHeader>
+            
+            <ClassFormContent />
+            
+            <DialogFooter>
+              <Button variant="outline" onClick={() => {
+                resetForm();
+                setEditDialogOpen(false);
+              }}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleSubmit}
+                className="bg-attendify-600 hover:bg-attendify-700"
+              >
+                Update Class
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
       
       <Separator />
       
       {isLoading ? (
         <div className="flex justify-center items-center h-40">
-          <div className="animate-pulse text-attendify-600">Loading events...</div>
+          <div className="animate-pulse text-attendify-600">Loading classes...</div>
         </div>
-      ) : events.length === 0 ? (
+      ) : classes.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center h-40 p-6">
-            <Calendar className="h-12 w-12 text-attendify-400 mb-4" />
+            <Users className="h-12 w-12 text-attendify-400 mb-4" />
             <CardDescription className="text-center">
-              No events found. Create an event first to register attendees.
+              No classes found. Add your first class to get started.
             </CardDescription>
             <Button
               className="mt-4 bg-attendify-600 hover:bg-attendify-700"
-              onClick={() => navigate('/events')}
+              onClick={() => setDialogOpen(true)}
             >
-              Go to Events
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Add First Class
             </Button>
           </CardContent>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {events.map((event) => (
-            <Link key={event.id} to={`/register/${event.id}`} className="block">
-              <Card className="transition-all hover:shadow-md hover:border-attendify-300 cursor-pointer h-full">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg font-semibold">{event.name}</CardTitle>
-                  <CardDescription>{formatDate(event.date)}</CardDescription>
-                </CardHeader>
-                <CardContent className="flex justify-between items-center">
-                  <div>
-                    {event.location && (
-                      <p className="text-sm text-muted-foreground">{event.location}</p>
+          {classes.map((cls) => (
+            <Card key={cls.id} className="transition-all hover:shadow-md">
+              <CardHeader className="pb-3">
+                <div className="flex justify-between items-start">
+                  <CardTitle className="text-lg font-semibold flex items-center">
+                    {cls.name}
+                    {cls.grade && (
+                      <Badge variant="outline" className="bg-attendify-50 ml-2 flex items-center">
+                        <GraduationCap className="h-3 w-3 mr-1" />
+                        {cls.grade}
+                      </Badge>
                     )}
-                  </div>
-                  <ClipboardList className="h-5 w-5 text-attendify-500" />
-                </CardContent>
-              </Card>
-            </Link>
+                  </CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleEditClass(cls);
+                    }}
+                    className="h-8 w-8 rounded-full"
+                  >
+                    <Pencil className="h-4 w-4" />
+                    <span className="sr-only">Edit</span>
+                  </Button>
+                </div>
+                <CardDescription>Created on {formatDate(cls.createdAt)}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <h4 className="text-sm font-medium mb-2">Servants:</h4>
+                {cls.servants.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No servants assigned</p>
+                ) : (
+                  <ScrollArea className="h-24">
+                    <div className="flex flex-wrap gap-2">
+                      {cls.servants.map((servant, i) => (
+                        <Badge key={i} variant="outline" className="bg-attendify-50">
+                          {servant}
+                        </Badge>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                )}
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}
@@ -447,4 +365,4 @@ const EventSelectionPage: React.FC = () => {
   );
 };
 
-export default RegistrationPage;
+export default ClassesPage;
