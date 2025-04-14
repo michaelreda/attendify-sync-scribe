@@ -80,7 +80,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       
       <nav className="bg-attendify-700 text-white">
         <div className="container mx-auto px-4 sm:px-6">
-          <div className="flex space-x-1 sm:space-x-4 overflow-x-auto py-2 scrollbar-hide">
+          <div className="flex flex-col sm:flex-row sm:space-x-1 sm:space-x-4 space-y-2 sm:space-y-0 py-2">
             <Link 
               to="/classes" 
               className={cn(

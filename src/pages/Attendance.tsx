@@ -12,6 +12,7 @@ import { ArrowLeft, Calendar, Search, CheckCircle, XCircle, UserCheck, Graduatio
 import { format } from 'date-fns';
 import ContactButtons from '@/components/ContactButtons';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
 
 // Helper function to get value from an attendee's values by field ID
 const getAttendeeValue = (attendee: Attendee, fieldId: string): string => {
@@ -225,8 +226,8 @@ const AttendancePage: React.FC = () => {
     const servantNames = classInfo?.servants?.join(', ') || 'No servants assigned';
     
     return (
-      <div key={attendee.id} className="flex items-center justify-between p-4 border-b hover:bg-muted/50 transition-colors">
-        <div className="flex-1">
+      <div key={attendee.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border-b hover:bg-muted/50 transition-colors">
+        <div className="flex-1 mb-2 sm:mb-0">
           <div className="flex items-center space-x-2">
             <div className="font-medium">{getAttendeeDisplayName(attendee)}</div>
             {classInfo && (
@@ -251,19 +252,24 @@ const AttendancePage: React.FC = () => {
                   <span className="font-medium">{field.name}:</span>{' '}
                   <span>{getAttendeeValue(attendee, field.id) || 'Not provided'}</span>
                   {isPhoneField(field) && getAttendeeValue(attendee, field.id) && (
-                    <ContactButtons phoneNumber={getAttendeeValue(attendee, field.id)} />
+                    <div className="inline-flex items-center ml-2">
+                      <ContactButtons phoneNumber={getAttendeeValue(attendee, field.id)} />
+                    </div>
                   )}
                 </div>
               ))}
             </div>
           )}
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-2 space-y-2 sm:space-y-0">
           <Button
             variant={attendee.attended ? "default" : "outline"}
             size="sm"
             onClick={() => handleAttendanceToggle(attendee.id, attendee.attended)}
-            className={attendee.attended ? "bg-green-600 hover:bg-green-700" : ""}
+            className={cn(
+              "w-full sm:w-auto",
+              attendee.attended ? "bg-green-600 hover:bg-green-700" : ""
+            )}
           >
             {attendee.attended ? (
               <>

@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { PhoneCall, MessageCircle } from 'lucide-react';
@@ -45,24 +44,24 @@ const ContactButtons: React.FC<ContactButtonsProps> = ({ phoneNumber }) => {
   };
 
   return (
-    <div className="flex space-x-2 mt-1">
+    <div className="inline-flex items-center gap-1">
       <Button 
         onClick={handleCall}
-        variant="outline"
-        size="sm"
-        className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 hover:text-blue-700"
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+        title="Call"
       >
-        <PhoneCall className="h-3.5 w-3.5 mr-1" />
-        Call
+        <PhoneCall className="h-3.5 w-3.5" />
       </Button>
       <Button 
         onClick={handleWhatsApp}
-        variant="outline"
-        size="sm"
-        className="bg-green-50 text-green-600 border-green-200 hover:bg-green-100 hover:text-green-700"
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+        title="WhatsApp"
       >
-        <MessageCircle className="h-3.5 w-3.5 mr-1" />
-        WhatsApp
+        <MessageCircle className="h-3.5 w-3.5" />
       </Button>
     </div>
   );

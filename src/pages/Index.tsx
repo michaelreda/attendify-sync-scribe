@@ -27,16 +27,16 @@ const Index: React.FC = () => {
   
   return (
     <div className="space-y-8 py-6">
-      <div className="text-center space-y-2">
-        <h1 className="text-3xl sm:text-4xl font-bold text-attendify-800">
+      <div className="text-center space-y-4">
+        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-attendify-800">
           AttendifySync
         </h1>
-        <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+        <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto px-4">
           An offline-first application for managing event attendance with automatic syncing when online
         </p>
       </div>
       
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4 max-w-5xl mx-auto">
+      <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 max-w-5xl mx-auto px-4">
         <Card className="transition-all hover:shadow-md hover:border-attendify-300">
           <CardHeader className="pb-2">
             <Users className="h-6 w-6 text-attendify-600 mb-2" />
@@ -73,7 +73,7 @@ const Index: React.FC = () => {
           </CardFooter>
         </Card>
         
-        <Card className="transition-all hover:shadow-md hover:border-attendify-300">
+        {/* <Card className="transition-all hover:shadow-md hover:border-attendify-300">
           <CardHeader className="pb-2">
             <ClipboardList className="h-6 w-6 text-attendify-600 mb-2" />
             <CardTitle className="text-lg">Register Attendees</CardTitle>
@@ -107,7 +107,7 @@ const Index: React.FC = () => {
               </Button>
             </Link>
           </CardFooter>
-        </Card>
+        </Card> */}
       </div>
       
       <div className="max-w-3xl mx-auto mt-12 p-6 bg-attendify-50 rounded-lg border border-attendify-100">

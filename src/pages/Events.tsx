@@ -52,6 +52,8 @@ const EventsPage: React.FC = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingEvent, setDeletingEvent] = useState<Event | null>(null);
   const navigate = useNavigate();
+  const [selectedEventId, setSelectedEventId] = useState('');
+  const [changeEventDialogOpen, setChangeEventDialogOpen] = useState(false);
   
   const passwordForm = useForm<z.infer<typeof passwordSchema>>({
     resolver: zodResolver(passwordSchema),
@@ -377,477 +379,104 @@ const EventsPage: React.FC = () => {
   
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Events</h1>
-          <p className="text-muted-foreground">View and manage your attendance events</p>
-        </div>
-        
-        <Dialog open={adminDialogOpen} onOpenChange={setAdminDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-attendify-600 hover:bg-attendify-700">
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Create Event
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Admin Authentication</DialogTitle>
-              <DialogDescription>
-                Enter the admin password to create a new event
-              </DialogDescription>
-            </DialogHeader>
-            
-            <Form {...passwordForm}>
-              <form onSubmit={passwordForm.handleSubmit(handlePasswordSubmit)} className="space-y-4 py-4">
-                <FormField
-                  control={passwordForm.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Admin Password</FormLabel>
-                      <FormControl>
-                        <div className="flex space-x-2 items-center">
-                          <Input 
-                            type="password" 
-                            placeholder="Enter password" 
-                            {...field} 
-                          />
-                          <Lock className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Events</h1>
+            <p className="text-muted-foreground">View and manage your attendance events</p>
+          </div>
+          
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Dialog open={adminDialogOpen} onOpenChange={setAdminDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="bg-attendify-600 hover:bg-attendify-700">
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  Create Event
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Admin Authentication</DialogTitle>
+                  <DialogDescription>
+                    Enter the admin password to create a new event
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="password">Password</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={passwordForm.watch('password')}
+                      onChange={(e) => passwordForm.setValue('password', e.target.value)}
+                      placeholder="Enter admin password"
+                    />
+                  </div>
+                </div>
                 <DialogFooter>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => setAdminDialogOpen(false)}
                   >
                     Cancel
                   </Button>
-                  <Button 
-                    type="submit"
-                    className="bg-attendify-600 hover:bg-attendify-700"
+                  <Button
+                    onClick={passwordForm.handleSubmit(handlePasswordSubmit)}
+                    disabled={!passwordForm.formState.isValid}
                   >
-                    Verify
+                    Submit
                   </Button>
                 </DialogFooter>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
-        
-        {/* Event creation dialog - only shows after admin auth */}
-        <Dialog open={eventDialogOpen} onOpenChange={setEventDialogOpen}>
-          <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-y-auto">
+              </DialogContent>
+            </Dialog>
+          </div>
+        </div>
+
+        <Dialog open={changeEventDialogOpen} onOpenChange={setChangeEventDialogOpen}>
+          <DialogTrigger asChild>
+            <Button variant="outline" className="w-full sm:w-auto">
+              <Calendar className="mr-2 h-4 w-4" />
+              Change Event
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
-              <DialogTitle>Create New Event</DialogTitle>
+              <DialogTitle>Change Event</DialogTitle>
               <DialogDescription>
-                Set up an event and define custom registration fields
+                Select a different event to view
               </DialogDescription>
             </DialogHeader>
-            
-            <Form {...eventForm}>
-              <form onSubmit={eventForm.handleSubmit(handleEventSubmit)} className="space-y-6">
-                <div className="space-y-4">
-                  <FormField
-                    control={eventForm.control}
-                    name="name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Event Name</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter event name" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  
-                  <FormField
-                    control={eventForm.control}
-                    name="date"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Event Date</FormLabel>
-                        <FormControl>
-                          <Input type="date" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  
-                  <FormField
-                    control={eventForm.control}
-                    name="location"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Location (Optional)</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter location" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  
-                  <FormField
-                    control={eventForm.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Description (Optional)</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter description" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                
-                <Separator />
-                
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Custom Registration Fields</h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Define the fields attendees will fill out during registration
-                  </p>
-                  
-                  {/* List of added fields */}
-                  {customFields.length > 0 && (
-                    <div className="space-y-2 mb-4">
-                      {customFields.map((field, index) => (
-                        <div 
-                          key={field.id} 
-                          className="flex items-center justify-between bg-muted p-3 rounded-md"
-                        >
-                          <div className="flex-1">
-                            <p className="font-medium text-sm">{field.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Type: {field.type} | {field.required ? 'Required' : 'Optional'}
-                              {field.options && field.options.length > 0 && (
-                                <> | Options: {field.options.join(', ')}</>
-                              )}
-                            </p>
-                          </div>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            onClick={() => removeField(index)}
-                            className="h-8 w-8 p-0"
-                          >
-                            <Trash className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  
-                  {/* Add new field form */}
-                  <div className="space-y-4 bg-attendify-50 p-4 rounded-md">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="fieldName">Field Name</Label>
-                        <Input
-                          id="fieldName"
-                          value={newFieldName}
-                          onChange={(e) => setNewFieldName(e.target.value)}
-                          placeholder="e.g., Phone Number"
-                        />
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <Label htmlFor="fieldType">Field Type</Label>
-                        <Select
-                          value={newFieldType}
-                          onValueChange={(value: FieldType) => {
-                            setNewFieldType(value);
-                            if (value !== 'select') {
-                              setNewFieldOptions('');
-                            }
-                          }}
-                        >
-                          <SelectTrigger id="fieldType">
-                            <SelectValue placeholder="Select field type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="text">Text</SelectItem>
-                            <SelectItem value="number">Number</SelectItem>                
-                            <SelectItem value="phone">Phone</SelectItem>
-                            <SelectItem value="select">Dropdown Select</SelectItem>                
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center space-x-2">
-                      <Switch
-                        id="required"
-                        checked={newFieldRequired}
-                        onCheckedChange={setNewFieldRequired}
-                      />
-                      <Label htmlFor="required">Required Field</Label>
-                    </div>
-                    
-                    {newFieldType === 'select' && (
-                      <div className="space-y-2">
-                        <Label htmlFor="options">
-                          Options (comma separated)
-                        </Label>
-                        <Input
-                          id="options"
-                          value={newFieldOptions}
-                          onChange={(e) => setNewFieldOptions(e.target.value)}
-                          placeholder="Option 1, Option 2, Option 3"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Separate each option with a comma
-                        </p>
-                      </div>
-                    )}
-                    
-                    <Button
-                      type="button"
-                      onClick={addCustomField}
-                      className="w-full"
-                    >
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add Field
-                    </Button>
-                  </div>
-                </div>
-                
-                <DialogFooter>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    onClick={() => {
-                      resetForms();
-                      setEventDialogOpen(false);
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button 
-                    type="submit"
-                    className="bg-attendify-600 hover:bg-attendify-700"
-                  >
-                    Create Event
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
-        
-        {/* Edit Event Dialog */}
-        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-          <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Edit Event</DialogTitle>
-              <DialogDescription>
-                Update event information and registration fields
-              </DialogDescription>
-            </DialogHeader>
-            
-            <Form {...eventForm}>
-              <form onSubmit={eventForm.handleSubmit(handleEventSubmit)} className="space-y-6">
-                <div className="space-y-4">
-                  <FormField
-                    control={eventForm.control}
-                    name="name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Event Name</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter event name" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  
-                  <FormField
-                    control={eventForm.control}
-                    name="date"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Event Date</FormLabel>
-                        <FormControl>
-                          <Input type="date" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  
-                  <FormField
-                    control={eventForm.control}
-                    name="location"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Location (Optional)</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter location" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  
-                  <FormField
-                    control={eventForm.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Description (Optional)</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter description" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                
-                <Separator />
-                
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Custom Registration Fields</h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Define the fields attendees will fill out during registration
-                  </p>
-                  
-                  {/* List of added fields */}
-                  {customFields.length > 0 && (
-                    <div className="space-y-2 mb-4">
-                      {customFields.map((field, index) => (
-                        <div 
-                          key={field.id} 
-                          className="flex items-center justify-between bg-muted p-3 rounded-md"
-                        >
-                          <div className="flex-1">
-                            <p className="font-medium text-sm">{field.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Type: {field.type} | {field.required ? 'Required' : 'Optional'}
-                              {field.options && field.options.length > 0 && (
-                                <> | Options: {field.options.join(', ')}</>
-                              )}
-                            </p>
-                          </div>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            onClick={() => removeField(index)}
-                            className="h-8 w-8 p-0"
-                          >
-                            <Trash className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  
-                  {/* Add new field form */}
-                  <div className="space-y-4 bg-attendify-50 p-4 rounded-md">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="fieldName">Field Name</Label>
-                        <Input
-                          id="fieldName"
-                          value={newFieldName}
-                          onChange={(e) => setNewFieldName(e.target.value)}
-                          placeholder="e.g., Phone Number"
-                        />
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <Label htmlFor="fieldType">Field Type</Label>
-                        <Select
-                          value={newFieldType}
-                          onValueChange={(value: FieldType) => {
-                            setNewFieldType(value);
-                            if (value !== 'select') {
-                              setNewFieldOptions('');
-                            }
-                          }}
-                        >
-                          <SelectTrigger id="fieldType">
-                            <SelectValue placeholder="Select field type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="text">Text</SelectItem>
-                            <SelectItem value="number">Number</SelectItem>                
-                            <SelectItem value="phone">Phone</SelectItem>
-                            <SelectItem value="select">Dropdown Select</SelectItem>                
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center space-x-2">
-                      <Switch
-                        id="required"
-                        checked={newFieldRequired}
-                        onCheckedChange={setNewFieldRequired}
-                      />
-                      <Label htmlFor="required">Required Field</Label>
-                    </div>
-                    
-                    {newFieldType === 'select' && (
-                      <div className="space-y-2">
-                        <Label htmlFor="options">
-                          Options (comma separated)
-                        </Label>
-                        <Input
-                          id="options"
-                          value={newFieldOptions}
-                          onChange={(e) => setNewFieldOptions(e.target.value)}
-                          placeholder="Option 1, Option 2, Option 3"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Separate each option with a comma
-                        </p>
-                      </div>
-                    )}
-                    
-                    <Button
-                      type="button"
-                      onClick={addCustomField}
-                      className="w-full"
-                    >
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add Field
-                    </Button>
-                  </div>
-                </div>
-                
-                <DialogFooter>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    onClick={() => {
-                      resetForms();
-                      setEditDialogOpen(false);
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button 
-                    type="submit"
-                    className="bg-attendify-600 hover:bg-attendify-700"
-                  >
-                    Update Event
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="event">Event</Label>
+                <Select
+                  value={selectedEventId}
+                  onValueChange={(value) => {
+                    setSelectedEventId(value);
+                    setChangeEventDialogOpen(false);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select an event" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {events.map((event) => (
+                      <SelectItem key={event.id} value={event.id}>
+                        {event.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setChangeEventDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>

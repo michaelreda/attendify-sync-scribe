@@ -501,11 +501,11 @@ const RegistrationPage: React.FC = () => {
           </div>
 
           <div className="space-y-4">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
               <h2 className="text-xl font-semibold">Registered Attendees</h2>
               <Button
                 onClick={() => setIsDialogOpen(true)}
-                className="bg-attendify-600 hover:bg-attendify-700"
+                className="w-full sm:w-auto bg-attendify-600 hover:bg-attendify-700"
               >
                 <PlusCircle className="mr-2 h-4 w-4" />
                 Register New Attendee
