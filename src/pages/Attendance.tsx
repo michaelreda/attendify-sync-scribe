@@ -159,6 +159,9 @@ const AttendancePage: React.FC = () => {
         throw new Error('Attendee not found');
       }
 
+      // Get attendee name for the toast message
+      const attendeeName = getAttendeeDisplayName(attendee);
+
       // Create updated attendee object
       const updatedAttendee = {
         ...attendee,
@@ -176,15 +179,19 @@ const AttendancePage: React.FC = () => {
       );
       
       toast({
-        title: 'Attendance updated',
+        title: `${attendeeName}`,
         description: `Marked as ${!currentStatus ? 'attended' : 'not attended'}`,
+        className: !currentStatus ? "bg-green-500 text-white" : "bg-yellow-500 text-white"
       });
     } catch (error) {
       console.error('Failed to update attendance:', error);
+      const attendee = attendees.find(a => a.id === attendeeId);
+      const attendeeName = attendee ? getAttendeeDisplayName(attendee) : 'Unknown attendee';
       toast({
-        title: 'Update failed',
-        description: 'Please try again',
-        variant: 'destructive'
+        title: `${attendeeName}`,
+        description: 'Failed to update attendance. Please try again.',
+        variant: 'destructive',
+        className: "bg-red-500 text-white"
       });
     }
   };
