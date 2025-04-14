@@ -1,10 +1,12 @@
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, set, get, remove, onValue, off } from 'firebase/database';
+import { getDatabase, ref, set, get, remove, onValue, off, onDisconnect, serverTimestamp } from 'firebase/database';
 import { Class, Event, Attendee } from '../types';
 
 export class FirebaseService {
   private static instance: FirebaseService;
   private db;
+  private connectionRef;
+  private isConnectedRef;
 
   private constructor() {
     const firebaseConfig = {
@@ -18,6 +20,21 @@ export class FirebaseService {
     };
     const app = initializeApp(firebaseConfig);
     this.db = getDatabase(app);
+    
+    // Set up connection state tracking
+    this.connectionRef = ref(this.db, '.info/connected');
+    this.isConnectedRef = ref(this.db, '.info/connected');
+    
+    // Set up connection state listener
+    onValue(this.connectionRef, (snap) => {
+      if (snap.val() === false) {
+        // We're offline
+        this.notifyConnectionStatus('offline');
+      } else {
+        // We're online
+        this.notifyConnectionStatus('online');
+      }
+    });
   }
 
   public static getInstance(): FirebaseService {
@@ -25,6 +42,22 @@ export class FirebaseService {
       FirebaseService.instance = new FirebaseService();
     }
     return FirebaseService.instance;
+  }
+
+  private connectionStatusCallbacks: ((status: 'online' | 'offline') => void)[] = [];
+
+  public subscribeToConnectionStatus(callback: (status: 'online' | 'offline') => void): () => void {
+    this.connectionStatusCallbacks.push(callback);
+    // Initial status
+    callback('online');
+    
+    return () => {
+      this.connectionStatusCallbacks = this.connectionStatusCallbacks.filter(cb => cb !== callback);
+    };
+  }
+
+  private notifyConnectionStatus(status: 'online' | 'offline') {
+    this.connectionStatusCallbacks.forEach(callback => callback(status));
   }
 
   public onClassesChange(callback: (classes: Class[]) => void): () => void {

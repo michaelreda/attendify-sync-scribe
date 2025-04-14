@@ -471,11 +471,15 @@ class DbService {
 
   public subscribeSyncStatus(callback: (status: ConnectionStatus) => void): () => void {
     this.syncStatusCallbacks.push(callback);
-    // Initial status
-    callback('online');
+    
+    // Subscribe to Firebase connection status
+    const unsubscribe = this.firebaseService.subscribeToConnectionStatus((status) => {
+      callback(status);
+    });
     
     return () => {
       this.syncStatusCallbacks = this.syncStatusCallbacks.filter(cb => cb !== callback);
+      unsubscribe();
     };
   }
 
