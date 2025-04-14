@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { Class } from '../types';
 import dbService from '../services/db.service';
@@ -151,6 +150,8 @@ const ClassesPage: React.FC = () => {
               setClassName(e.target.value);
               setNameError('');
             }}
+            onBlur={(e) => e.target.focus()}
+            autoFocus
             placeholder="Enter class name"
           />
           {nameError && <p className="text-destructive text-sm">{nameError}</p>}
@@ -162,6 +163,7 @@ const ClassesPage: React.FC = () => {
             id="grade"
             value={grade}
             onChange={(e) => setGrade(e.target.value)}
+            onBlur={(e) => e.target.focus()}
             placeholder="Enter grade (e.g., 1st, 2nd, 3rd)"
           />
         </div>
@@ -173,6 +175,7 @@ const ClassesPage: React.FC = () => {
               id="servants"
               value={servantInput}
               onChange={(e) => setServantInput(e.target.value)}
+              onBlur={(e) => e.target.focus()}
               placeholder="Add servant name"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
