@@ -141,7 +141,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       
       <footer className="bg-attendify-800 text-white py-4">
         <div className="container mx-auto px-4 sm:px-6 text-center text-sm">
-          <p>AttendifySync - Offline-first Attendance Tracking App</p>
+          <p>AttendifySync - Created with love for the Church of St. Mark Heliopolis</p>
         </div>
       </footer>
     </div>
