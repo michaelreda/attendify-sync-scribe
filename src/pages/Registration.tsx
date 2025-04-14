@@ -243,29 +243,39 @@ const RegistrationPage: React.FC = () => {
 
   const handleContactSelect = async (fieldId: string) => {
     try {
-      // Check if Contacts API is available
-      if (!navigator.contacts) {
-        toast({
-          title: 'Contacts API not available',
-          description: 'Contact selection is not supported in this browser. Please enter the phone number manually.',
-          variant: 'destructive'
-        });
-        return;
-      }
-
-      // Request contact picker
-      const contacts = await navigator.contacts.select(['name', 'tel'], { multiple: false });
-      if (contacts && contacts.length > 0) {
-        const contact = contacts[0];
-        if (contact.tel && contact.tel.length > 0) {
-          handleInputChange(fieldId, contact.tel[0]);
+      // Check if we're on a mobile device
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
+      if (isMobile) {
+        // For mobile devices, try to use the native contact picker
+        if ('contacts' in navigator) {
+          try {
+            const contacts = await navigator.contacts.select(['name', 'tel'], { multiple: false });
+            if (contacts && contacts.length > 0) {
+              const contact = contacts[0];
+              if (contact.tel && contact.tel.length > 0) {
+                handleInputChange(fieldId, contact.tel[0]);
+                return;
+              }
+            }
+          } catch (error) {
+            console.log('Native contact picker failed, falling back to file picker');
+          }
         }
       }
+
+      // Fallback for desktop browsers
+      toast({
+        title: 'Contact Selection',
+        description: 'Please enter the phone number manually. On mobile devices, you can export a contact and select the .vcf file.',
+        variant: 'default'
+      });
+      
     } catch (error) {
       console.error('Error selecting contact:', error);
       toast({
         title: 'Error',
-        description: 'Failed to select contact. Please try again or enter the phone number manually.',
+        description: 'Failed to select contact. Please enter the phone number manually.',
         variant: 'destructive'
       });
     }
@@ -394,12 +404,13 @@ const RegistrationPage: React.FC = () => {
               <div className="flex gap-2">
                 <Input
                   id={`field-${field.id}`}
+                  type={isPhoneField(field) ? "tel" : "text"}
                   value={otherFields[field.id] || ''}
                   onChange={(e) => handleInputChange(field.id, e.target.value)}
                   placeholder={`Enter ${field.name.toLowerCase()}`}
                   onBlur={() => validateField(field.id, otherFields[field.id] || '', field.required)}
                 />
-                {isPhoneField(field) && (
+                {isPhoneField(field) && 'contacts' in navigator && (
                   <Button
                     type="button"
                     variant="outline"
