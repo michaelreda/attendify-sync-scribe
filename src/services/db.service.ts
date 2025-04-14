@@ -285,6 +285,43 @@ export class DbService {
     });
   }
 
+  public async updateEvent(eventData: Omit<Event, 'createdAt'>): Promise<Event> {
+    if (!this.db) await this.initDatabase();
+    
+    const now = new Date().toISOString();
+    const updatedEvent: Event = {
+      ...eventData,
+      updatedAt: now
+    };
+
+    return new Promise(async (resolve, reject) => {
+      // First check if the event exists
+      const existingEvent = await this.getEvent(eventData.id);
+      if (!existingEvent) {
+        return reject(new Error('Event not found'));
+      }
+
+      const transaction = this.db!.transaction(['events', 'syncQueue'], 'readwrite');
+      const store = transaction.objectStore('events');
+      const syncStore = transaction.objectStore('syncQueue');
+      
+      store.put(updatedEvent);
+      syncStore.add({
+        type: 'updateEvent',
+        data: updatedEvent,
+        timestamp: now
+      });
+
+      transaction.oncomplete = () => {
+        this.updatePendingChangesCount(this.currentSyncInfo.pendingChanges + 1);
+        if (navigator.onLine) this.syncWithServer();
+        resolve(updatedEvent);
+      };
+
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
   public async getAttendees(eventId: string): Promise<Attendee[]> {
     if (!this.db) await this.initDatabase();
     return new Promise((resolve, reject) => {

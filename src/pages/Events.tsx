@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { Event, CustomField, FieldType } from '../types';
 import dbService from '../services/db.service';
@@ -10,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
-import { PlusCircle, Calendar, Lock, Trash, Plus, X } from 'lucide-react';
+import { PlusCircle, Calendar, Lock, Trash, Plus, X, Pencil } from 'lucide-react';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
@@ -40,7 +39,9 @@ const EventsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [newFieldType, setNewFieldType] = useState<FieldType>('text');
   const [newFieldName, setNewFieldName] = useState('');
@@ -93,6 +94,7 @@ const EventsPage: React.FC = () => {
     setNewFieldType('text');
     setNewFieldRequired(false);
     setNewFieldOptions('');
+    setEditingEvent(null);
   };
   
   const handlePasswordSubmit = (values: z.infer<typeof passwordSchema>) => {
@@ -105,6 +107,18 @@ const EventsPage: React.FC = () => {
         message: "Incorrect password" 
       });
     }
+  };
+  
+  const handleEditEvent = (event: Event) => {
+    setEditingEvent(event);
+    eventForm.reset({
+      name: event.name,
+      date: event.date,
+      location: event.location || '',
+      description: event.description || '',
+    });
+    setCustomFields(event.customFields);
+    setEditDialogOpen(true);
   };
   
   const addCustomField = () => {
@@ -177,26 +191,49 @@ const EventsPage: React.FC = () => {
         });
       }
       
-      await dbService.addEvent({
-        name: values.name,
-        date: values.date,
-        location: values.location,
-        description: values.description,
-        customFields: fieldsToUse
-      });
-      
-      toast({
-        title: 'Event created successfully',
-        description: 'The event has been saved locally and will sync when online'
-      });
+      if (editingEvent) {
+        // Update existing event
+        await dbService.updateEvent({
+          id: editingEvent.id,
+          name: values.name,
+          date: values.date,
+          location: values.location,
+          description: values.description,
+          customFields: fieldsToUse,
+          createdAt: editingEvent.createdAt,
+          updatedAt: new Date().toISOString()
+        });
+        
+        toast({
+          title: 'Event updated successfully',
+          description: 'The event has been updated and will sync when online'
+        });
+        
+        setEditDialogOpen(false);
+      } else {
+        // Add new event
+        await dbService.addEvent({
+          name: values.name,
+          date: values.date,
+          location: values.location,
+          description: values.description,
+          customFields: fieldsToUse
+        });
+        
+        toast({
+          title: 'Event created successfully',
+          description: 'The event has been saved locally and will sync when online'
+        });
+        
+        setEventDialogOpen(false);
+      }
       
       resetForms();
-      setEventDialogOpen(false);
       loadEvents();
     } catch (error) {
-      console.error('Failed to add event:', error);
+      console.error('Failed to save event:', error);
       toast({
-        title: 'Error creating event',
+        title: `Error ${editingEvent ? 'updating' : 'creating'} event`,
         description: 'Please try again',
         variant: 'destructive'
       });
@@ -481,6 +518,211 @@ const EventsPage: React.FC = () => {
             </Form>
           </DialogContent>
         </Dialog>
+        
+        {/* Edit Event Dialog */}
+        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+          <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit Event</DialogTitle>
+              <DialogDescription>
+                Update event information and registration fields
+              </DialogDescription>
+            </DialogHeader>
+            
+            <Form {...eventForm}>
+              <form onSubmit={eventForm.handleSubmit(handleEventSubmit)} className="space-y-6">
+                <div className="space-y-4">
+                  <FormField
+                    control={eventForm.control}
+                    name="name"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Event Name</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Enter event name" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  
+                  <FormField
+                    control={eventForm.control}
+                    name="date"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Event Date</FormLabel>
+                        <FormControl>
+                          <Input type="date" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  
+                  <FormField
+                    control={eventForm.control}
+                    name="location"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Location (Optional)</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Enter location" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  
+                  <FormField
+                    control={eventForm.control}
+                    name="description"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Description (Optional)</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Enter description" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                
+                <Separator />
+                
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Custom Registration Fields</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Define the fields attendees will fill out during registration
+                  </p>
+                  
+                  {/* List of added fields */}
+                  {customFields.length > 0 && (
+                    <div className="space-y-2 mb-4">
+                      {customFields.map((field, index) => (
+                        <div 
+                          key={field.id} 
+                          className="flex items-center justify-between bg-muted p-3 rounded-md"
+                        >
+                          <div className="flex-1">
+                            <p className="font-medium text-sm">{field.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Type: {field.type} | {field.required ? 'Required' : 'Optional'}
+                              {field.options && field.options.length > 0 && (
+                                <> | Options: {field.options.join(', ')}</>
+                              )}
+                            </p>
+                          </div>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => removeField(index)}
+                            className="h-8 w-8 p-0"
+                          >
+                            <Trash className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {/* Add new field form */}
+                  <div className="space-y-4 bg-attendify-50 p-4 rounded-md">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="fieldName">Field Name</Label>
+                        <Input
+                          id="fieldName"
+                          value={newFieldName}
+                          onChange={(e) => setNewFieldName(e.target.value)}
+                          placeholder="e.g., Phone Number"
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="fieldType">Field Type</Label>
+                        <Select
+                          value={newFieldType}
+                          onValueChange={(value: FieldType) => {
+                            setNewFieldType(value);
+                            if (value !== 'select') {
+                              setNewFieldOptions('');
+                            }
+                          }}
+                        >
+                          <SelectTrigger id="fieldType">
+                            <SelectValue placeholder="Select field type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="text">Text</SelectItem>
+                            <SelectItem value="number">Number</SelectItem>                
+                            <SelectItem value="phone">Phone</SelectItem>
+                            <SelectItem value="select">Dropdown Select</SelectItem>                
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="required"
+                        checked={newFieldRequired}
+                        onCheckedChange={setNewFieldRequired}
+                      />
+                      <Label htmlFor="required">Required Field</Label>
+                    </div>
+                    
+                    {newFieldType === 'select' && (
+                      <div className="space-y-2">
+                        <Label htmlFor="options">
+                          Options (comma separated)
+                        </Label>
+                        <Input
+                          id="options"
+                          value={newFieldOptions}
+                          onChange={(e) => setNewFieldOptions(e.target.value)}
+                          placeholder="Option 1, Option 2, Option 3"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Separate each option with a comma
+                        </p>
+                      </div>
+                    )}
+                    
+                    <Button
+                      type="button"
+                      onClick={addCustomField}
+                      className="w-full"
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Field
+                    </Button>
+                  </div>
+                </div>
+                
+                <DialogFooter>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => {
+                      resetForms();
+                      setEditDialogOpen(false);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    type="submit"
+                    className="bg-attendify-600 hover:bg-attendify-700"
+                  >
+                    Update Event
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
       </div>
       
       <Separator />
@@ -510,7 +752,18 @@ const EventsPage: React.FC = () => {
           {events.map((event) => (
             <Card key={event.id} className="transition-all hover:shadow-md">
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg font-semibold">{event.name}</CardTitle>
+                <div className="flex justify-between items-start">
+                  <CardTitle className="text-lg font-semibold">{event.name}</CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleEditEvent(event)}
+                    className="h-8 w-8 rounded-full"
+                  >
+                    <Pencil className="h-4 w-4" />
+                    <span className="sr-only">Edit</span>
+                  </Button>
+                </div>
                 <CardDescription>{formatDate(event.date)}</CardDescription>
               </CardHeader>
               <CardContent>
