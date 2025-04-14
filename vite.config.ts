@@ -17,6 +17,11 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      'google-auth-library': 'google-auth-library/build/src/index.js',
     },
+  },
+  define: {
+    'process.env': {},
+    global: 'window',
   },
 }));

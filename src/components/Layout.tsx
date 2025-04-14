@@ -1,9 +1,8 @@
-
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { SyncInfo } from '../types';
 import dbService from '../services/db.service';
-import { Wifi, WifiOff, Clock } from 'lucide-react';
+import { Wifi, WifiOff, Clock, Settings } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -112,6 +111,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               )}
             >
               Take Attendance
+            </Link>
+            <Link 
+              to="/settings" 
+              className={cn(
+                "px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap hover:bg-attendify-800 transition-colors flex items-center",
+                location.pathname.startsWith('/settings') ? "bg-attendify-800" : ""
+              )}
+            >
+              <Settings className="h-4 w-4 mr-1" />
+              Settings
             </Link>
           </div>
         </div>
