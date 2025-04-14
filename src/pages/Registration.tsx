@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Class, Attendee, Event } from '../types';
+import { Class, Attendee, Event, CustomField } from '../types';
 import dbService from '../services/db.service';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,7 +13,24 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
-import { PlusCircle, Users, User, X, Check, Trash2, ArrowLeft, Search, GraduationCap } from 'lucide-react';
+import { PlusCircle, Users, User, X, Check, Trash2, ArrowLeft, Search, GraduationCap, Contact } from 'lucide-react';
+
+// Add type definition for contacts API
+declare global {
+  interface Navigator {
+    contacts: {
+      select(properties: string[], options: { multiple: boolean }): Promise<Array<{
+        name?: string[];
+        tel?: string[];
+      }>>;
+    };
+  }
+}
+
+// Helper function to check if a field is a phone field
+const isPhoneField = (field: CustomField): boolean => {
+  return field.type === 'phone';
+};
 
 const RegistrationPage: React.FC = () => {
   const { eventId } = useParams<{ eventId: string }>();
@@ -224,6 +241,36 @@ const RegistrationPage: React.FC = () => {
     }
   };
 
+  const handleContactSelect = async (fieldId: string) => {
+    try {
+      // Check if Contacts API is available
+      if (!navigator.contacts) {
+        toast({
+          title: 'Contacts API not available',
+          description: 'Contact selection is not supported in this browser. Please enter the phone number manually.',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      // Request contact picker
+      const contacts = await navigator.contacts.select(['name', 'tel'], { multiple: false });
+      if (contacts && contacts.length > 0) {
+        const contact = contacts[0];
+        if (contact.tel && contact.tel.length > 0) {
+          handleInputChange(fieldId, contact.tel[0]);
+        }
+      }
+    } catch (error) {
+      console.error('Error selecting contact:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to select contact. Please try again or enter the phone number manually.',
+        variant: 'destructive'
+      });
+    }
+  };
+
   const renderAttendeeRow = (attendee: Attendee) => {
     const attendeeClass = classes.find(cls => cls.id === attendee.classId);
     const nameFieldValue = attendee.values.find(v =>
@@ -344,13 +391,26 @@ const RegistrationPage: React.FC = () => {
           .map(field => (
             <div className="grid gap-2" key={field.id}>
               <Label htmlFor={`field-${field.id}`}>{field.name} {field.required ? '*' : ''}</Label>
-              <Input
-                id={`field-${field.id}`}
-                value={otherFields[field.id] || ''}
-                onChange={(e) => handleInputChange(field.id, e.target.value)}
-                placeholder={`Enter ${field.name.toLowerCase()}`}
-                onBlur={() => validateField(field.id, otherFields[field.id] || '', field.required)}
-              />
+              <div className="flex gap-2">
+                <Input
+                  id={`field-${field.id}`}
+                  value={otherFields[field.id] || ''}
+                  onChange={(e) => handleInputChange(field.id, e.target.value)}
+                  placeholder={`Enter ${field.name.toLowerCase()}`}
+                  onBlur={() => validateField(field.id, otherFields[field.id] || '', field.required)}
+                />
+                {isPhoneField(field) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => handleContactSelect(field.id)}
+                    title="Select from contacts"
+                  >
+                    <Contact className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
               {otherFieldsErrors[field.id] && <p className="text-destructive text-sm">{otherFieldsErrors[field.id]}</p>}
             </div>
           ))
