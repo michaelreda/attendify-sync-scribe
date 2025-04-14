@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/ui/use-toast';
-import { ArrowLeft, Calendar, Search, CheckCircle, XCircle, UserCheck, GraduationCap, Users, UserPlus, Check, X, Trash2 } from 'lucide-react';
+import { ArrowLeft, Calendar, Search, CheckCircle, XCircle, UserCheck, GraduationCap, Users, UserPlus, Check, X, Trash2, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import ContactButtons from '@/components/ContactButtons';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -222,7 +222,7 @@ const AttendancePage: React.FC = () => {
   const renderAttendeeRow = (attendee: Attendee) => {
     const classInfo = classes[attendee.classId];
     const customFields = event?.customFields || [];
-    const servantNames = classInfo?.servants?.map(servant => servant.name).join(', ') || 'No servants assigned';
+    const servantNames = classInfo?.servants?.join(', ') || 'No servants assigned';
     
     return (
       <div key={attendee.id} className="flex items-center justify-between p-4 border-b hover:bg-muted/50 transition-colors">
@@ -233,7 +233,6 @@ const AttendancePage: React.FC = () => {
               <Badge variant="outline" className="bg-attendify-50">
                 <GraduationCap className="h-3 w-3 mr-1" />
                 {classInfo.name}
-                {classInfo.grade && ` (${classInfo.grade})`}
               </Badge>
             )}
           </div>
@@ -281,6 +280,11 @@ const AttendancePage: React.FC = () => {
         </div>
       </div>
     );
+  };
+  
+  const getClassServants = (classId: string) => {
+    const cls = classes.find(c => c.id === classId);
+    return cls?.servants || [];
   };
   
   // This is the event selection page shown when no event is specified
@@ -392,7 +396,6 @@ const AttendancePage: React.FC = () => {
               >
                 <GraduationCap className="h-3 w-3 mr-1" />
                 {cls.name}
-                {cls.grade && ` (${cls.grade})`}
               </Badge>
             ))}
           </div>

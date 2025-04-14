@@ -12,6 +12,18 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
 import { PlusCircle, Users, GraduationCap, Pencil, Trash2 } from 'lucide-react';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm } from 'react-hook-form';
+import * as z from 'zod';
+
+// Validation schema for class form
+const classFormSchema = z.object({
+  name: z.string().min(1, "Class name is required"),
+  grade: z.string().optional(),
+  servants: z.array(z.string()).default([]),
+  servantInput: z.string().optional(),
+});
 
 const ClassesPage: React.FC = () => {
   const [classes, setClasses] = useState<Class[]>([]);
@@ -22,12 +34,15 @@ const ClassesPage: React.FC = () => {
   const [editingClass, setEditingClass] = useState<Class | null>(null);
   const [deletingClass, setDeletingClass] = useState<Class | null>(null);
   
-  // Form state
-  const [className, setClassName] = useState('');
-  const [grade, setGrade] = useState('');
-  const [servantInput, setServantInput] = useState('');
-  const [servants, setServants] = useState<string[]>([]);
-  const [nameError, setNameError] = useState('');
+  const form = useForm<z.infer<typeof classFormSchema>>({
+    resolver: zodResolver(classFormSchema),
+    defaultValues: {
+      name: "",
+      grade: "",
+      servants: [],
+      servantInput: "",
+    },
+  });
   
   useEffect(() => {
     loadData();
@@ -60,40 +75,33 @@ const ClassesPage: React.FC = () => {
   };
   
   const resetForm = () => {
-    setClassName('');
-    setGrade('');
-    setServantInput('');
-    setServants([]);
-    setNameError('');
+    form.reset();
     setEditingClass(null);
   };
   
   const handleAddServant = () => {
-    if (servantInput.trim()) {
-      setServants(prev => [...prev, servantInput.trim()]);
-      setServantInput('');
+    const servantInput = form.getValues('servantInput');
+    if (servantInput?.trim()) {
+      const currentServants = form.getValues('servants') || [];
+      form.setValue('servants', [...currentServants, servantInput.trim()]);
+      form.setValue('servantInput', '');
     }
   };
   
   const handleRemoveServant = (index: number) => {
-    setServants(prev => prev.filter((_, i) => i !== index));
+    const currentServants = form.getValues('servants') || [];
+    form.setValue('servants', currentServants.filter((_, i) => i !== index));
   };
   
-  const handleSubmit = async () => {
-    // Validate
-    if (!className.trim()) {
-      setNameError('Class name is required');
-      return;
-    }
-    
+  const handleSubmit = async (values: z.infer<typeof classFormSchema>) => {
     try {
       if (editingClass) {
         // Update existing class
         await dbService.updateClass({
           id: editingClass.id,
-          name: className.trim(),
-          grade: grade.trim() || undefined,
-          servants: servants || [],
+          name: values.name,
+          grade: values.grade || undefined,
+          servants: values.servants || [],
           updatedAt: new Date().toISOString()
         });
         
@@ -106,9 +114,9 @@ const ClassesPage: React.FC = () => {
       } else {
         // Add new class
         await dbService.addClass({
-          name: className.trim(),
-          grade: grade.trim() || undefined,
-          servants: servants || [],
+          name: values.name,
+          grade: values.grade || undefined,
+          servants: values.servants || [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         });
@@ -135,9 +143,11 @@ const ClassesPage: React.FC = () => {
   
   const handleEditClass = (cls: Class) => {
     setEditingClass(cls);
-    setClassName(cls.name);
-    setGrade(cls.grade || '');
-    setServants(cls.servants || []);
+    form.reset({
+      name: cls.name,
+      grade: cls.grade || '',
+      servants: cls.servants || [],
+    });
     setEditDialogOpen(true);
   };
   
@@ -173,85 +183,101 @@ const ClassesPage: React.FC = () => {
   
   // Class Form Dialog content shared between Add and Edit modes
   const ClassFormContent = () => (
-    <>
-      <div className="grid gap-4 py-4">
-        <div className="grid gap-2">
-          <Label htmlFor="className">Class Name</Label>
-          <Input
-            id="className"
-            value={className}
-            onChange={(e) => {
-              setClassName(e.target.value);
-              setNameError('');
-            }}
-            onBlur={(e) => e.target.focus()}
-            autoFocus
-            placeholder="Enter class name"
-          />
-          {nameError && <p className="text-destructive text-sm">{nameError}</p>}
-        </div>
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+        <FormField
+          control={form.control}
+          name="name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Class Name</FormLabel>
+              <FormControl>
+                <Input placeholder="Enter class name" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
         
-        <div className="grid gap-2">
-          <Label htmlFor="grade">Grade (Optional)</Label>
-          <Input
-            id="grade"
-            value={grade}
-            onChange={(e) => setGrade(e.target.value)}
-            onBlur={(e) => e.target.focus()}
-            placeholder="Enter grade (e.g., 1st, 2nd, 3rd)"
-          />
-        </div>
+        <FormField
+          control={form.control}
+          name="grade"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Grade (Optional)</FormLabel>
+              <FormControl>
+                <Input placeholder="Enter grade (e.g., 1st, 2nd, 3rd)" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
         
-        <div className="grid gap-2">
-          <Label htmlFor="servants">Servants</Label>
-          <div className="flex space-x-2">
-            <Input
-              id="servants"
-              value={servantInput}
-              onChange={(e) => setServantInput(e.target.value)}
-              onBlur={(e) => e.target.focus()}
-              placeholder="Add servant name"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleAddServant();
-                }
-              }}
-            />
-            <Button 
-              type="button" 
-              variant="secondary" 
-              onClick={handleAddServant}
-            >
-              Add
-            </Button>
-          </div>
-        </div>
-        
-        {servants.length > 0 && (
-          <div className="grid gap-2">
-            <Label>Added Servants</Label>
-            <div className="flex flex-wrap gap-2 py-2">
-              {servants.map((servant, index) => (
-                <Badge 
-                  key={index} 
-                  variant="secondary"
-                  className="flex items-center gap-1"
-                >
-                  {servant}
-                  <button
-                    onClick={() => handleRemoveServant(index)}
-                    className="ml-1 rounded-full w-4 h-4 inline-flex items-center justify-center hover:bg-attendify-300 transition-colors"
-                  >
-                    ×
-                  </button>
-                </Badge>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </>
+        <FormField
+          control={form.control}
+          name="servants"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Servants</FormLabel>
+              <FormControl>
+                <div className="space-y-2">
+                  <div className="flex space-x-2">
+                    <FormField
+                      control={form.control}
+                      name="servantInput"
+                      render={({ field: servantField }) => (
+                        <FormItem className="flex-1">
+                          <FormControl>
+                            <Input
+                              placeholder="Add servant name"
+                              {...servantField}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleAddServant();
+                                }
+                              }}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <Button 
+                      type="button" 
+                      variant="secondary" 
+                      onClick={handleAddServant}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  {field.value && field.value.length > 0 && (
+                    <div className="flex flex-wrap gap-2 py-2">
+                      {field.value.map((servant, index) => (
+                        <Badge 
+                          key={index} 
+                          variant="secondary"
+                          className="flex items-center gap-1"
+                        >
+                          {servant}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveServant(index)}
+                            className="ml-1 rounded-full w-4 h-4 inline-flex items-center justify-center hover:bg-attendify-300 transition-colors"
+                          >
+                            ×
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </form>
+    </Form>
   );
   
   return (
@@ -270,7 +296,7 @@ const ClassesPage: React.FC = () => {
               Add Class
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="sm:max-w-[425px]" onOpenAutoFocus={(e) => e.preventDefault()}>
             <DialogHeader>
               <DialogTitle>Add a New Class</DialogTitle>
               <DialogDescription>
@@ -288,7 +314,7 @@ const ClassesPage: React.FC = () => {
                 Cancel
               </Button>
               <Button 
-                onClick={handleSubmit}
+                onClick={form.handleSubmit(handleSubmit)}
                 className="bg-attendify-600 hover:bg-attendify-700"
               >
                 Save Class
@@ -299,7 +325,7 @@ const ClassesPage: React.FC = () => {
         
         {/* Edit Class Dialog */}
         <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="sm:max-w-[425px]" onOpenAutoFocus={(e) => e.preventDefault()}>
             <DialogHeader>
               <DialogTitle>Edit Class</DialogTitle>
               <DialogDescription>
@@ -317,7 +343,7 @@ const ClassesPage: React.FC = () => {
                 Cancel
               </Button>
               <Button 
-                onClick={handleSubmit}
+                onClick={form.handleSubmit(handleSubmit)}
                 className="bg-attendify-600 hover:bg-attendify-700"
               >
                 Update Class
