@@ -11,14 +11,16 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
-import { PlusCircle, Users, GraduationCap, Pencil } from 'lucide-react';
+import { PlusCircle, Users, GraduationCap, Pencil, Trash2 } from 'lucide-react';
 
 const ClassesPage: React.FC = () => {
   const [classes, setClasses] = useState<Class[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingClass, setEditingClass] = useState<Class | null>(null);
+  const [deletingClass, setDeletingClass] = useState<Class | null>(null);
   
   // Form state
   const [className, setClassName] = useState('');
@@ -28,19 +30,28 @@ const ClassesPage: React.FC = () => {
   const [nameError, setNameError] = useState('');
   
   useEffect(() => {
-    loadClasses();
+    loadData();
+
+    // Subscribe to real-time updates
+    const unsubscribe = dbService.subscribeToClasses((updatedClasses) => {
+      setClasses(updatedClasses || []);
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
   
-  const loadClasses = async () => {
+  const loadData = async () => {
     try {
       setIsLoading(true);
       const loadedClasses = await dbService.getClasses();
-      setClasses(loadedClasses);
+      setClasses(loadedClasses || []);
     } catch (error) {
       console.error('Failed to load classes:', error);
       toast({
-        title: 'Error loading classes',
-        description: 'Please try again',
+        title: 'Error',
+        description: 'Failed to load classes. Please try again.',
         variant: 'destructive'
       });
     } finally {
@@ -82,9 +93,8 @@ const ClassesPage: React.FC = () => {
           id: editingClass.id,
           name: className.trim(),
           grade: grade.trim() || undefined,
-          servants: servants,
-          createdAt: editingClass.createdAt,
-          updatedAt: editingClass.updatedAt
+          servants: servants || [],
+          updatedAt: new Date().toISOString()
         });
         
         toast({
@@ -98,7 +108,9 @@ const ClassesPage: React.FC = () => {
         await dbService.addClass({
           name: className.trim(),
           grade: grade.trim() || undefined,
-          servants: servants
+          servants: servants || [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
         });
         
         toast({
@@ -110,7 +122,7 @@ const ClassesPage: React.FC = () => {
       }
       
       resetForm();
-      loadClasses();
+      loadData();
     } catch (error) {
       console.error('Failed to save class:', error);
       toast({
@@ -127,6 +139,28 @@ const ClassesPage: React.FC = () => {
     setGrade(cls.grade || '');
     setServants(cls.servants || []);
     setEditDialogOpen(true);
+  };
+  
+  const handleDeleteClass = async () => {
+    if (!deletingClass) return;
+    
+    try {
+      await dbService.deleteClass(deletingClass.id);
+      toast({
+        title: 'Class deleted successfully',
+        description: 'The class has been deleted and will sync when online'
+      });
+      setDeleteDialogOpen(false);
+      setDeletingClass(null);
+      loadData();
+    } catch (error) {
+      console.error('Failed to delete class:', error);
+      toast({
+        title: 'Error deleting class',
+        description: 'Please try again',
+        variant: 'destructive'
+      });
+    }
   };
   
   const formatDate = (dateString: string) => {
@@ -330,29 +364,44 @@ const ClassesPage: React.FC = () => {
                       </Badge>
                     )}
                   </CardTitle>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleEditClass(cls);
-                    }}
-                    className="h-8 w-8 rounded-full"
-                  >
-                    <Pencil className="h-4 w-4" />
-                    <span className="sr-only">Edit</span>
-                  </Button>
+                  <div className="flex space-x-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEditClass(cls);
+                      }}
+                      className="h-8 w-8 rounded-full"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      <span className="sr-only">Edit</span>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeletingClass(cls);
+                        setDeleteDialogOpen(true);
+                      }}
+                      className="h-8 w-8 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span className="sr-only">Delete</span>
+                    </Button>
+                  </div>
                 </div>
                 <CardDescription>Created on {formatDate(cls.createdAt)}</CardDescription>
               </CardHeader>
               <CardContent>
                 <h4 className="text-sm font-medium mb-2">Servants:</h4>
-                {cls.servants.length === 0 ? (
+                {(!cls.servants || cls.servants.length === 0) ? (
                   <p className="text-sm text-muted-foreground">No servants assigned</p>
                 ) : (
                   <ScrollArea className="h-24">
                     <div className="flex flex-wrap gap-2">
-                      {cls.servants.map((servant, i) => (
+                      {(cls.servants || []).map((servant, i) => (
                         <Badge key={i} variant="outline" className="bg-attendify-50">
                           {servant}
                         </Badge>
@@ -365,6 +414,32 @@ const ClassesPage: React.FC = () => {
           ))}
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Class</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {deletingClass?.name}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setDeleteDialogOpen(false);
+              setDeletingClass(null);
+            }}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={handleDeleteClass}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

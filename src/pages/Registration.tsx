@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Class, Attendee, Event } from '../types';
 import dbService from '../services/db.service';
 import { Button } from '@/components/ui/button';
@@ -13,28 +13,70 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
-import { PlusCircle, Users, User, X, Check } from 'lucide-react';
+import { PlusCircle, Users, User, X, Check, Trash2, ArrowLeft, Search, GraduationCap } from 'lucide-react';
 
 const RegistrationPage: React.FC = () => {
   const { eventId } = useParams<{ eventId: string }>();
+  const navigate = useNavigate();
   const [classes, setClasses] = useState<Class[]>([]);
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [event, setEvent] = useState<Event | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingAttendee, setDeletingAttendee] = useState<Attendee | null>(null);
 
   // Form state
-  const [selectedClassId, setSelectedClassId] = useState<string | undefined>(undefined);
+  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [nameInputValue, setNameInputValue] = useState('');
   const [nameError, setNameError] = useState<string | undefined>(undefined);
   const [otherFields, setOtherFields] = useState<Record<string, string>>({});
   const [otherFieldsErrors, setOtherFieldsErrors] = useState<Record<string, string>>({});
+  const [formData, setFormData] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [nameFieldId, setNameFieldId] = useState<string | null>(null);
+  const [phoneFields, setPhoneFields] = useState<CustomField[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filteredClasses, setFilteredClasses] = useState<Class[]>([]);
 
   useEffect(() => {
     if (eventId) {
       loadData();
     }
   }, [eventId]);
+
+  // Add effect to listen for sync status changes
+  useEffect(() => {
+    const unsubscribe = dbService.subscribeSyncStatus((info) => {
+      // If we were offline and just came back online, or if sync just completed
+      if (info.status === 'online' && info.pendingChanges === 0) {
+        loadData();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [eventId]);
+
+  useEffect(() => {
+    // Filter classes based on search query and selected class
+    let filtered = Object.values(classes);
+    
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(cls => 
+        cls.name.toLowerCase().includes(query) ||
+        (cls.grade && cls.grade.toLowerCase().includes(query))
+      );
+    }
+    
+    if (selectedClassId) {
+      filtered = filtered.filter(cls => cls.id === selectedClassId);
+    }
+    
+    setFilteredClasses(filtered);
+  }, [searchQuery, classes, selectedClassId]);
 
   const loadData = async () => {
     try {
@@ -58,7 +100,7 @@ const RegistrationPage: React.FC = () => {
   };
 
   const resetForm = () => {
-    setSelectedClassId(undefined);
+    setSelectedClassId(null);
     setNameInputValue('');
     setNameError(undefined);
     setOtherFields({});
@@ -160,6 +202,28 @@ const RegistrationPage: React.FC = () => {
     return true;
   };
 
+  const handleDeleteAttendee = async () => {
+    if (!deletingAttendee) return;
+    
+    try {
+      await dbService.deleteAttendee(deletingAttendee.id);
+      toast({
+        title: 'Attendee deleted successfully',
+        description: 'The attendee has been deleted and will sync when online'
+      });
+      setDeleteDialogOpen(false);
+      setDeletingAttendee(null);
+      loadData();
+    } catch (error) {
+      console.error('Failed to delete attendee:', error);
+      toast({
+        title: 'Error deleting attendee',
+        description: 'Please try again',
+        variant: 'destructive'
+      });
+    }
+  };
+
   const renderAttendeeRow = (attendee: Attendee) => {
     const attendeeClass = classes.find(cls => cls.id === attendee.classId);
     const nameFieldValue = attendee.values.find(v =>
@@ -174,12 +238,74 @@ const RegistrationPage: React.FC = () => {
           <User className="h-5 w-5 mr-2" />
           <span>{nameFieldValue || 'Unnamed Attendee'}</span>
         </div>
-        {attendeeClass ? (
-          <Badge variant="secondary">{attendeeClass.name}</Badge>
-        ) : (
-          <Badge variant="outline">Class not found</Badge>
-        )}
+        <div className="flex items-center space-x-2">
+          {attendeeClass ? (
+            <Badge variant="secondary">{attendeeClass.name}</Badge>
+          ) : (
+            <Badge variant="outline">Class not found</Badge>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              setDeletingAttendee(attendee);
+              setDeleteDialogOpen(true);
+            }}
+            className="h-8 w-8 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
+          >
+            <Trash2 className="h-4 w-4" />
+            <span className="sr-only">Delete</span>
+          </Button>
+        </div>
       </div>
+    );
+  };
+
+  const renderClassCard = (cls: Class) => {
+    const classAttendees = attendees.filter(a => a.classId === cls.id);
+    const attendeeCount = classAttendees.length;
+    const maxAttendees = cls.maxAttendees || 0;
+    const isFull = maxAttendees > 0 && attendeeCount >= maxAttendees;
+
+    return (
+      <Card key={cls.id} className="hover:shadow-md transition-shadow">
+        <CardHeader>
+          <div className="flex justify-between items-start">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <GraduationCap className="h-5 w-5 text-attendify-600" />
+                {cls.name}
+                {cls.grade && (
+                  <Badge variant="outline" className="ml-2">
+                    {cls.grade}
+                  </Badge>
+                )}
+              </CardTitle>
+              <CardDescription>
+                {cls.description || 'No description provided'}
+              </CardDescription>
+            </div>
+            <Badge variant={isFull ? "destructive" : "default"}>
+              {attendeeCount} / {maxAttendees || '∞'} attendees
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex justify-end">
+            <Button
+              onClick={() => {
+                setSelectedClassId(cls.id);
+                setIsDialogOpen(true);
+              }}
+              disabled={isFull}
+              className="bg-attendify-600 hover:bg-attendify-700"
+            >
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Register Attendee
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     );
   };
 
@@ -234,75 +360,158 @@ const RegistrationPage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="container mx-auto py-8">
+      <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Event Registration</h1>
+          <h1 className="text-3xl font-bold">Registration</h1>
+          <p className="text-muted-foreground">
+            {event ? `Register for ${event.name}` : 'Select an event to register'}
+          </p>
           {event && (
-            <p className="text-muted-foreground">
-              Register attendees for {event.name} on {formatDate(event.date)}
-            </p>
+            <div className="mt-2">
+              <Badge variant="outline" className="bg-attendify-50">
+                <Users className="h-3 w-3 mr-1" />
+                Total Attendees: {attendees.length}
+              </Badge>
+            </div>
           )}
         </div>
-
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-attendify-600 hover:bg-attendify-700">
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Register Attendee
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Register New Attendee</DialogTitle>
-              <DialogDescription>
-                Register a new attendee for this event
-              </DialogDescription>
-            </DialogHeader>
-
-            {renderAttendeeForm()}
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => {
-                resetForm();
-                setIsDialogOpen(false);
-              }}>
-                Cancel
-              </Button>
-              <Button onClick={handleSubmit} className="bg-attendify-600 hover:bg-attendify-700">
-                Register Attendee
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {event && (
+          <Button 
+            variant="outline"
+            onClick={() => navigate('/events')}
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Change Event
+          </Button>
+        )}
       </div>
 
-      <Separator />
-
-      {isLoading ? (
-        <div className="flex justify-center items-center h-40">
-          <div className="animate-pulse text-attendify-600">Loading data...</div>
+      {!event ? (
+        <div className="text-center py-12">
+          <p className="text-muted-foreground">Please select an event to register</p>
         </div>
-      ) : attendees.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center h-40 p-6">
-            <User className="h-12 w-12 text-attendify-400 mb-4" />
-            <CardDescription className="text-center">
-              No attendees registered for this event yet.
-            </CardDescription>
-            <Button
-              className="mt-4 bg-attendify-600 hover:bg-attendify-700"
-              onClick={() => setIsDialogOpen(true)}
-            >
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Register First Attendee
-            </Button>
-          </CardContent>
-        </Card>
       ) : (
-        <div className="space-y-4">
-          {attendees.map(renderAttendeeRow)}
-        </div>
+        <>
+          <div className="mb-6">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <Input
+                type="text"
+                placeholder="Search attendees..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+          </div>
+
+          {/* Class Filter Badges */}
+          <div className="flex flex-wrap gap-2 mb-6">
+            <Badge
+              variant={selectedClassId === null ? "default" : "outline"}
+              className="cursor-pointer hover:bg-attendify-100"
+              onClick={() => setSelectedClassId(null)}
+            >
+              All Classes
+            </Badge>
+            {Object.values(classes).map((cls) => (
+              <Badge
+                key={cls.id}
+                variant={selectedClassId === cls.id ? "default" : "outline"}
+                className="cursor-pointer hover:bg-attendify-100"
+                onClick={() => setSelectedClassId(cls.id)}
+              >
+                <GraduationCap className="h-3 w-3 mr-1" />
+                {cls.name}
+                {cls.grade && ` (${cls.grade})`}
+              </Badge>
+            ))}
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-semibold">Registered Attendees</h2>
+              <Button
+                onClick={() => setIsDialogOpen(true)}
+                className="bg-attendify-600 hover:bg-attendify-700"
+              >
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Register New Attendee
+              </Button>
+            </div>
+
+            {attendees.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-muted-foreground">
+                  No attendees registered yet
+                </p>
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="p-0">
+                  <ScrollArea className="h-[600px]">
+                    <div className="space-y-2 p-4">
+                      {attendees.map(renderAttendeeRow)}
+                    </div>
+                  </ScrollArea>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Registration Dialog */}
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle>Register New Attendee</DialogTitle>
+                <DialogDescription>
+                  Register a new attendee for this event
+                </DialogDescription>
+              </DialogHeader>
+
+              {renderAttendeeForm()}
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => {
+                  resetForm();
+                  setIsDialogOpen(false);
+                }}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSubmit} className="bg-attendify-600 hover:bg-attendify-700">
+                  Register Attendee
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Delete Confirmation Dialog */}
+          <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Delete Attendee</DialogTitle>
+                <DialogDescription>
+                  Are you sure you want to delete this attendee? This action cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => {
+                  setDeleteDialogOpen(false);
+                  setDeletingAttendee(null);
+                }}>
+                  Cancel
+                </Button>
+                <Button 
+                  variant="destructive"
+                  onClick={handleDeleteAttendee}
+                >
+                  Delete
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </>
       )}
     </div>
   );

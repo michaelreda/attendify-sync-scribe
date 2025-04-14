@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { SyncInfo } from '../types';
@@ -12,18 +11,22 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
+  const [isOpen, setIsOpen] = useState(false);
   const [syncInfo, setSyncInfo] = useState<SyncInfo>({
-    lastSync: null,
     status: 'offline',
+    lastSync: null,
     pendingChanges: 0
   });
   const location = useLocation();
 
   useEffect(() => {
-    const unsubscribe = dbService.subscribeSyncStatus(info => {
-      setSyncInfo(info);
+    const unsubscribe = dbService.subscribeSyncStatus((status) => {
+      setSyncInfo(prev => ({
+        ...prev,
+        status
+      }));
     });
-    
+
     return () => unsubscribe();
   }, []);
 
@@ -95,7 +98,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             >
               Events
             </Link>
-            <Link 
+            {/* <Link 
               to="/register" 
               className={cn(
                 "px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap hover:bg-attendify-800 transition-colors",
@@ -112,7 +115,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               )}
             >
               Take Attendance
-            </Link>
+            </Link> */}
           </div>
         </div>
       </nav>

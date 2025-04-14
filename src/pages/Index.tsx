@@ -1,10 +1,14 @@
-
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowRight, Calendar, ClipboardList, UserCheck, Users } from 'lucide-react';
 import dbService from '../services/db.service';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Event } from '../types';
+import { format } from 'date-fns';
+import { Plus } from 'lucide-react';
 
 const Index: React.FC = () => {
   const navigate = useNavigate();

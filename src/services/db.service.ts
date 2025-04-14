@@ -1,499 +1,528 @@
-import { v4 as uuidv4 } from 'uuid';
-import { Class, Event, Attendee, SyncInfo } from '../types';
+import { openDB, DBSchema, IDBPDatabase } from 'idb';
+import { FirebaseService } from './firebase.service';
+import { Class, Event, Attendee, ConnectionStatus } from '../types';
 
-// Database schema version
-const DB_VERSION = 1;
-const DB_NAME = 'attendifyDB';
-
-export class DbService {
-  private db: IDBDatabase | null = null;
-  private syncCallbacks: ((status: SyncInfo) => void)[] = [];
-
-  private currentSyncInfo: SyncInfo = {
-    lastSync: null,
-    status: 'offline',
-    pendingChanges: 0
+interface MyDB extends DBSchema {
+  classes: {
+    key: string;
+    value: Class;
   };
+  events: {
+    key: string;
+    value: Event;
+  };
+  attendees: {
+    key: string;
+    value: Attendee;
+  };
+}
 
-  constructor() {
-    this.initDatabase();
-    this.setupNetworkListeners();
+class DbService {
+  private static instance: DbService;
+  private db: IDBPDatabase<MyDB> | null = null;
+  private firebaseService: FirebaseService;
+  private unsubscribeCallbacks: (() => void)[] = [];
+  private syncStatusCallbacks: ((status: ConnectionStatus) => void)[] = [];
+  private initPromise: Promise<void> | null = null;
+
+  private constructor() {
+    this.firebaseService = FirebaseService.getInstance();
+    this.initPromise = this.initializeDB();
   }
 
-  private async initDatabase(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-      request.onerror = (event) => {
-        console.error('Error opening database', event);
-        reject('Error opening database');
-      };
-
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        
-        // Create object stores if they don't exist
-        if (!db.objectStoreNames.contains('classes')) {
-          const classStore = db.createObjectStore('classes', { keyPath: 'id' });
-          classStore.createIndex('updatedAt', 'updatedAt', { unique: false });
-        }
-        
-        if (!db.objectStoreNames.contains('events')) {
-          const eventStore = db.createObjectStore('events', { keyPath: 'id' });
-          eventStore.createIndex('updatedAt', 'updatedAt', { unique: false });
-        }
-        
-        if (!db.objectStoreNames.contains('attendees')) {
-          const attendeeStore = db.createObjectStore('attendees', { keyPath: 'id' });
-          attendeeStore.createIndex('eventId', 'eventId', { unique: false });
-          attendeeStore.createIndex('classId', 'classId', { unique: false });
-          attendeeStore.createIndex('updatedAt', 'updatedAt', { unique: false });
-        }
-        
-        if (!db.objectStoreNames.contains('syncQueue')) {
-          db.createObjectStore('syncQueue', { keyPath: 'id', autoIncrement: true });
-        }
-      };
-
-      request.onsuccess = (event) => {
-        this.db = (event.target as IDBOpenDBRequest).result;
-        this.loadSyncInfoFromLocalStorage();
-        resolve();
-      };
-    });
-  }
-
-  private setupNetworkListeners(): void {
-    window.addEventListener('online', () => {
-      this.updateSyncStatus('online');
-      this.syncWithServer();
-    });
-
-    window.addEventListener('offline', () => {
-      this.updateSyncStatus('offline');
-    });
-
-    // Initial status check
-    this.updateSyncStatus(navigator.onLine ? 'online' : 'offline');
-
-    // Set up periodic sync when online
-    setInterval(() => {
-      if (navigator.onLine) {
-        this.syncWithServer();
-      }
-    }, 60000); // Every minute
-  }
-
-  private loadSyncInfoFromLocalStorage(): void {
-    const savedInfo = localStorage.getItem('syncInfo');
-    if (savedInfo) {
-      this.currentSyncInfo = JSON.parse(savedInfo);
+  public static getInstance(): DbService {
+    if (!DbService.instance) {
+      DbService.instance = new DbService();
     }
-    // Notify callbacks of the loaded state
-    this.notifySyncCallbacks();
+    return DbService.instance;
   }
 
-  private saveSyncInfoToLocalStorage(): void {
-    localStorage.setItem('syncInfo', JSON.stringify(this.currentSyncInfo));
-  }
+  private async initializeDB(): Promise<void> {
+    try {
+      this.db = await openDB<MyDB>('attendify-db', 1, {
+        upgrade(db) {
+          if (!db.objectStoreNames.contains('classes')) {
+            db.createObjectStore('classes', { keyPath: 'id' });
+          }
+          if (!db.objectStoreNames.contains('events')) {
+            db.createObjectStore('events', { keyPath: 'id' });
+          }
+          if (!db.objectStoreNames.contains('attendees')) {
+            db.createObjectStore('attendees', { keyPath: 'id' });
+          }
+        }
+      });
 
-  private updateSyncStatus(status: 'online' | 'offline'): void {
-    this.currentSyncInfo.status = status;
-    this.notifySyncCallbacks();
-    this.saveSyncInfoToLocalStorage();
-  }
+      // Set up Firebase listeners
+      const classesUnsubscribe = this.firebaseService.onClassesChange(async (classes) => {
+        if (!this.db) return;
+        
+        const tx = this.db.transaction('classes', 'readwrite');
+        const store = tx.objectStore('classes');
+        
+        // Clear existing data
+        await store.clear();
+        
+        // Add new data
+        for (const cls of classes) {
+          await store.add(cls);
+        }
+        
+        await tx.done;
+        
+        // Notify subscribers
+        this.notifyClassesChange(classes);
+      });
 
-  private updateLastSync(): void {
-    this.currentSyncInfo.lastSync = new Date().toISOString();
-    this.notifySyncCallbacks();
-    this.saveSyncInfoToLocalStorage();
-  }
+      const eventsUnsubscribe = this.firebaseService.onEventsChange(async (events) => {
+        if (!this.db) return;
+        
+        const tx = this.db.transaction('events', 'readwrite');
+        const store = tx.objectStore('events');
+        
+        // Clear existing data
+        await store.clear();
+        
+        // Add new data
+        for (const event of events) {
+          await store.add(event);
+        }
+        
+        await tx.done;
+        
+        // Notify subscribers
+        this.notifyEventsChange(events);
+      });
 
-  private updatePendingChangesCount(count: number): void {
-    this.currentSyncInfo.pendingChanges = count;
-    this.notifySyncCallbacks();
-    this.saveSyncInfoToLocalStorage();
-  }
+      const attendeesUnsubscribe = this.firebaseService.onAttendeesChange(async (attendees) => {
+        if (!this.db) return;
+        
+        const tx = this.db.transaction('attendees', 'readwrite');
+        const store = tx.objectStore('attendees');
+        
+        // Clear existing data
+        await store.clear();
+        
+        // Add new data
+        for (const attendee of attendees) {
+          await store.add(attendee);
+        }
+        
+        await tx.done;
+        
+        // Notify subscribers
+        this.notifyAttendeesChange(attendees);
+      });
 
-  private notifySyncCallbacks(): void {
-    for (const callback of this.syncCallbacks) {
-      callback({ ...this.currentSyncInfo });
+      this.unsubscribeCallbacks.push(classesUnsubscribe, eventsUnsubscribe, attendeesUnsubscribe);
+    } catch (error) {
+      console.error('Error initializing database:', error);
+      throw error;
     }
   }
 
-  // Public methods
-  
-  public subscribeSyncStatus(callback: (status: SyncInfo) => void): () => void {
-    this.syncCallbacks.push(callback);
-    // Immediately invoke with current status
-    callback({ ...this.currentSyncInfo });
+  private async ensureInitialized(): Promise<void> {
+    if (this.initPromise) {
+      await this.initPromise;
+      this.initPromise = null;
+    }
+  }
+
+  private cleanDataForFirebase<T>(data: T): T {
+    if (data === null || data === undefined) {
+      return null as T;
+    }
     
-    // Return unsubscribe function
-    return () => {
-      this.syncCallbacks = this.syncCallbacks.filter(cb => cb !== callback);
+    if (Array.isArray(data)) {
+      return data.map(item => this.cleanDataForFirebase(item)) as T;
+    }
+    
+    if (typeof data === 'object') {
+      const cleaned: any = {};
+      for (const [key, value] of Object.entries(data)) {
+        if (value !== undefined) {
+          cleaned[key] = this.cleanDataForFirebase(value);
+        }
+      }
+      return cleaned as T;
+    }
+    
+    return data;
+  }
+
+  private async syncClasses() {
+    try {
+      const localClasses = await this.getAllClasses();
+      const remoteClasses = await this.firebaseService.getClasses();
+      
+      // Clean data before syncing
+      const cleanedLocalClasses = this.cleanDataForFirebase(localClasses);
+      const cleanedRemoteClasses = this.cleanDataForFirebase(remoteClasses);
+      
+      // Find items that exist locally but not remotely
+      const localOnly = cleanedLocalClasses.filter(local => 
+        !cleanedRemoteClasses.some(remote => remote.id === local.id)
+      );
+      
+      // Find items that exist remotely but not locally
+      const remoteOnly = cleanedRemoteClasses.filter(remote => 
+        !cleanedLocalClasses.some(local => local.id === remote.id)
+      );
+      
+      // Find items that exist in both but have different data
+      const toUpdate = cleanedLocalClasses.filter(local => {
+        const remote = cleanedRemoteClasses.find(r => r.id === local.id);
+        return remote && JSON.stringify(local) !== JSON.stringify(remote);
+      });
+      
+      // Sync only if there are actual changes
+      if (localOnly.length > 0 || remoteOnly.length > 0 || toUpdate.length > 0) {
+        await this.firebaseService.syncClasses(cleanedLocalClasses);
+      }
+    } catch (error) {
+      console.error('Error syncing classes:', error);
+      throw error;
+    }
+  }
+
+  private async syncEvents() {
+    try {
+      const localEvents = await this.getAllEvents();
+      const remoteEvents = await this.firebaseService.getEvents();
+      
+      // Clean data before syncing
+      const cleanedLocalEvents = this.cleanDataForFirebase(localEvents);
+      const cleanedRemoteEvents = this.cleanDataForFirebase(remoteEvents);
+      
+      // Find items that exist locally but not remotely
+      const localOnly = cleanedLocalEvents.filter(local => 
+        !cleanedRemoteEvents.some(remote => remote.id === local.id)
+      );
+      
+      // Find items that exist remotely but not locally
+      const remoteOnly = cleanedRemoteEvents.filter(remote => 
+        !cleanedLocalEvents.some(local => local.id === remote.id)
+      );
+      
+      // Find items that exist in both but have different data
+      const toUpdate = cleanedLocalEvents.filter(local => {
+        const remote = cleanedRemoteEvents.find(r => r.id === local.id);
+        return remote && JSON.stringify(local) !== JSON.stringify(remote);
+      });
+      
+      // Sync only if there are actual changes
+      if (localOnly.length > 0 || remoteOnly.length > 0 || toUpdate.length > 0) {
+        await this.firebaseService.syncEvents(cleanedLocalEvents);
+      }
+    } catch (error) {
+      console.error('Error syncing events:', error);
+      throw error;
+    }
+  }
+
+  private async syncAttendees() {
+    try {
+      const localAttendees = await this.getAllAttendees();
+      const remoteAttendees = await this.firebaseService.getAttendees();
+      
+      // Clean data before syncing
+      const cleanedLocalAttendees = this.cleanDataForFirebase(localAttendees);
+      const cleanedRemoteAttendees = this.cleanDataForFirebase(remoteAttendees);
+      
+      // Find items that exist locally but not remotely
+      const localOnly = cleanedLocalAttendees.filter(local => 
+        !cleanedRemoteAttendees.some(remote => remote.id === local.id)
+      );
+      
+      // Find items that exist remotely but not locally
+      const remoteOnly = cleanedRemoteAttendees.filter(remote => 
+        !cleanedLocalAttendees.some(local => local.id === remote.id)
+      );
+      
+      // Find items that exist in both but have different data
+      const toUpdate = cleanedLocalAttendees.filter(local => {
+        const remote = cleanedRemoteAttendees.find(r => r.id === local.id);
+        return remote && JSON.stringify(local) !== JSON.stringify(remote);
+      });
+      
+      // Sync only if there are actual changes
+      if (localOnly.length > 0 || remoteOnly.length > 0 || toUpdate.length > 0) {
+        await this.firebaseService.syncAttendees(cleanedLocalAttendees);
+      }
+    } catch (error) {
+      console.error('Error syncing attendees:', error);
+      throw error;
+    }
+  }
+
+  // Classes
+  public async addClass(cls: Omit<Class, 'id'>): Promise<Class> {
+    await this.ensureInitialized();
+    if (!this.db) throw new Error('Database not initialized');
+    
+    const newClass: Class = {
+      ...cls,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
+
+    const tx = this.db.transaction('classes', 'readwrite');
+    await tx.store.add(newClass);
+    await tx.done;
+
+    // Sync with Firebase
+    await this.syncClasses();
+    return newClass;
+  }
+
+  public async updateClass(cls: Omit<Class, 'createdAt'>): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.db) throw new Error('Database not initialized');
+    
+    // Get existing class to preserve createdAt
+    const existingClass = await this.db.get('classes', cls.id);
+    if (!existingClass) throw new Error('Class not found');
+    
+    const updatedClass: Class = {
+      ...cls,
+      createdAt: existingClass.createdAt,
+      updatedAt: new Date().toISOString()
+    };
+
+    const tx = this.db.transaction('classes', 'readwrite');
+    await tx.store.put(updatedClass);
+    await tx.done;
+
+    // Sync with Firebase
+    await this.syncClasses();
+  }
+
+  public async deleteClass(classId: string): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const tx = this.db.transaction('classes', 'readwrite');
+    await tx.store.delete(classId);
+    await tx.done;
+
+    // Sync with Firebase
+    await this.firebaseService.deleteClass(classId);
+  }
+
+  public async getAllClasses(): Promise<Class[]> {
+    await this.ensureInitialized();
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.getAll('classes');
   }
 
   public async getClasses(): Promise<Class[]> {
-    if (!this.db) await this.initDatabase();
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['classes'], 'readonly');
-      const store = transaction.objectStore('classes');
-      const request = store.getAll();
-
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    return this.getAllClasses();
   }
 
-  public async addClass(classData: Omit<Class, 'id' | 'createdAt' | 'updatedAt'>): Promise<Class> {
-    if (!this.db) await this.initDatabase();
+  // Events
+  public async addEvent(event: Omit<Event, 'id'>): Promise<Event> {
+    await this.ensureInitialized();
+    if (!this.db) throw new Error('Database not initialized');
     
-    const now = new Date().toISOString();
-    const newClass: Class = {
-      ...classData,
-      id: uuidv4(),
-      createdAt: now,
-      updatedAt: now
+    const newEvent: Event = {
+      ...event,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['classes', 'syncQueue'], 'readwrite');
-      const store = transaction.objectStore('classes');
-      const syncStore = transaction.objectStore('syncQueue');
-      
-      store.add(newClass);
-      syncStore.add({
-        type: 'addClass',
-        data: newClass,
-        timestamp: now
-      });
+    const tx = this.db.transaction('events', 'readwrite');
+    await tx.store.add(newEvent);
+    await tx.done;
 
-      transaction.oncomplete = () => {
-        this.updatePendingChangesCount(this.currentSyncInfo.pendingChanges + 1);
-        if (navigator.onLine) this.syncWithServer();
-        resolve(newClass);
-      };
-
-      transaction.onerror = () => reject(transaction.error);
-    });
+    // Sync with Firebase
+    await this.syncEvents();
+    return newEvent;
   }
 
-  public async updateClass(classData: Omit<Class, 'createdAt'>): Promise<Class> {
-    if (!this.db) await this.initDatabase();
+  public async updateEvent(event: Omit<Event, 'createdAt'>): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.db) throw new Error('Database not initialized');
     
-    const now = new Date().toISOString();
-    const updatedClass: Class = {
-      ...classData,
-      updatedAt: now
+    // Get existing event to preserve createdAt
+    const existingEvent = await this.db.get('events', event.id);
+    if (!existingEvent) throw new Error('Event not found');
+    
+    const updatedEvent: Event = {
+      ...event,
+      createdAt: existingEvent.createdAt,
+      updatedAt: new Date().toISOString()
     };
 
-    return new Promise(async (resolve, reject) => {
-      // First check if the class exists
-      const existingClass = await this.getClass(classData.id);
-      if (!existingClass) {
-        return reject(new Error('Class not found'));
-      }
+    const tx = this.db.transaction('events', 'readwrite');
+    await tx.store.put(updatedEvent);
+    await tx.done;
 
-      const transaction = this.db!.transaction(['classes', 'syncQueue'], 'readwrite');
-      const store = transaction.objectStore('classes');
-      const syncStore = transaction.objectStore('syncQueue');
-      
-      store.put(updatedClass);
-      syncStore.add({
-        type: 'updateClass',
-        data: updatedClass,
-        timestamp: now
-      });
-
-      transaction.oncomplete = () => {
-        this.updatePendingChangesCount(this.currentSyncInfo.pendingChanges + 1);
-        if (navigator.onLine) this.syncWithServer();
-        resolve(updatedClass);
-      };
-
-      transaction.onerror = () => reject(transaction.error);
-    });
+    // Sync with Firebase
+    await this.syncEvents();
   }
 
-  public async getClass(id: string): Promise<Class | null> {
-    if (!this.db) await this.initDatabase();
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['classes'], 'readonly');
-      const store = transaction.objectStore('classes');
-      const request = store.get(id);
+  public async deleteEvent(eventId: string): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.db) throw new Error('Database not initialized');
 
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    });
+    const tx = this.db.transaction('events', 'readwrite');
+    await tx.store.delete(eventId);
+    await tx.done;
+
+    // Sync with Firebase
+    await this.firebaseService.deleteEvent(eventId);
+  }
+
+  public async getAllEvents(): Promise<Event[]> {
+    await this.ensureInitialized();
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.getAll('events');
   }
 
   public async getEvents(): Promise<Event[]> {
-    if (!this.db) await this.initDatabase();
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['events'], 'readonly');
-      const store = transaction.objectStore('events');
-      const request = store.getAll();
-
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    return this.getAllEvents();
   }
 
-  public async getEvent(id: string): Promise<Event | null> {
-    if (!this.db) await this.initDatabase();
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['events'], 'readonly');
-      const store = transaction.objectStore('events');
-      const request = store.get(id);
-
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    });
+  public async getEvent(eventId: string): Promise<Event | null> {
+    await this.ensureInitialized();
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.get('events', eventId) || null;
   }
 
-  public async addEvent(eventData: Omit<Event, 'id' | 'createdAt' | 'updatedAt'>): Promise<Event> {
-    if (!this.db) await this.initDatabase();
+  // Attendees
+  public async addAttendee(attendee: Omit<Attendee, 'id'>): Promise<Attendee> {
+    await this.ensureInitialized();
+    if (!this.db) throw new Error('Database not initialized');
     
-    const now = new Date().toISOString();
-    const newEvent: Event = {
-      ...eventData,
-      id: uuidv4(),
-      createdAt: now,
-      updatedAt: now
-    };
-
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['events', 'syncQueue'], 'readwrite');
-      const store = transaction.objectStore('events');
-      const syncStore = transaction.objectStore('syncQueue');
-      
-      store.add(newEvent);
-      syncStore.add({
-        type: 'addEvent',
-        data: newEvent,
-        timestamp: now
-      });
-
-      transaction.oncomplete = () => {
-        this.updatePendingChangesCount(this.currentSyncInfo.pendingChanges + 1);
-        if (navigator.onLine) this.syncWithServer();
-        resolve(newEvent);
-      };
-
-      transaction.onerror = () => reject(transaction.error);
-    });
-  }
-
-  public async updateEvent(eventData: Omit<Event, 'createdAt'>): Promise<Event> {
-    if (!this.db) await this.initDatabase();
-    
-    const now = new Date().toISOString();
-    const updatedEvent: Event = {
-      ...eventData,
-      updatedAt: now
-    };
-
-    return new Promise(async (resolve, reject) => {
-      // First check if the event exists
-      const existingEvent = await this.getEvent(eventData.id);
-      if (!existingEvent) {
-        return reject(new Error('Event not found'));
-      }
-
-      const transaction = this.db!.transaction(['events', 'syncQueue'], 'readwrite');
-      const store = transaction.objectStore('events');
-      const syncStore = transaction.objectStore('syncQueue');
-      
-      store.put(updatedEvent);
-      syncStore.add({
-        type: 'updateEvent',
-        data: updatedEvent,
-        timestamp: now
-      });
-
-      transaction.oncomplete = () => {
-        this.updatePendingChangesCount(this.currentSyncInfo.pendingChanges + 1);
-        if (navigator.onLine) this.syncWithServer();
-        resolve(updatedEvent);
-      };
-
-      transaction.onerror = () => reject(transaction.error);
-    });
-  }
-
-  public async getAttendees(eventId: string): Promise<Attendee[]> {
-    if (!this.db) await this.initDatabase();
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['attendees'], 'readonly');
-      const store = transaction.objectStore('attendees');
-      const index = store.index('eventId');
-      const request = index.getAll(eventId);
-
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  public async addAttendee(attendeeData: Omit<Attendee, 'id' | 'createdAt' | 'updatedAt'>): Promise<Attendee> {
-    if (!this.db) await this.initDatabase();
-    
-    const now = new Date().toISOString();
     const newAttendee: Attendee = {
-      ...attendeeData,
-      id: uuidv4(),
-      createdAt: now,
-      updatedAt: now
+      ...attendee,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['attendees', 'syncQueue'], 'readwrite');
-      const store = transaction.objectStore('attendees');
-      const syncStore = transaction.objectStore('syncQueue');
-      
-      store.add(newAttendee);
-      syncStore.add({
-        type: 'addAttendee',
-        data: newAttendee,
-        timestamp: now
-      });
+    const tx = this.db.transaction('attendees', 'readwrite');
+    await tx.store.add(newAttendee);
+    await tx.done;
 
-      transaction.oncomplete = () => {
-        this.updatePendingChangesCount(this.currentSyncInfo.pendingChanges + 1);
-        if (navigator.onLine) this.syncWithServer();
-        resolve(newAttendee);
-      };
-
-      transaction.onerror = () => reject(transaction.error);
-    });
+    // Sync with Firebase
+    await this.syncAttendees();
+    return newAttendee;
   }
 
-  public async updateAttendeeStatus(attendeeId: string, attended: boolean): Promise<Attendee> {
-    if (!this.db) await this.initDatabase();
+  public async updateAttendee(attendee: Omit<Attendee, 'createdAt'>): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.db) throw new Error('Database not initialized');
     
-    const now = new Date().toISOString();
+    // Get existing attendee to preserve createdAt
+    const existingAttendee = await this.db.get('attendees', attendee.id);
+    if (!existingAttendee) throw new Error('Attendee not found');
+    
+    const updatedAttendee: Attendee = {
+      ...attendee,
+      createdAt: existingAttendee.createdAt,
+      updatedAt: new Date().toISOString()
+    };
 
-    return new Promise(async (resolve, reject) => {
-      const transaction = this.db!.transaction(['attendees', 'syncQueue'], 'readwrite');
-      const store = transaction.objectStore('attendees');
-      const syncStore = transaction.objectStore('syncQueue');
-      
-      // First get the attendee
-      const request = store.get(attendeeId);
-      
-      request.onsuccess = () => {
-        if (!request.result) {
-          reject(new Error('Attendee not found'));
-          return;
-        }
-        
-        const attendee = request.result;
-        attendee.attended = attended;
-        attendee.updatedAt = now;
-        
-        // Update in store
-        store.put(attendee);
-        
-        // Add to sync queue
-        syncStore.add({
-          type: 'updateAttendee',
-          data: attendee,
-          timestamp: now
-        });
-      };
+    const tx = this.db.transaction('attendees', 'readwrite');
+    await tx.store.put(updatedAttendee);
+    await tx.done;
 
-      transaction.oncomplete = async () => {
-        this.updatePendingChangesCount(this.currentSyncInfo.pendingChanges + 1);
-        if (navigator.onLine) this.syncWithServer();
-        
-        // Get the updated attendee to return
-        const updatedAttendee = await this.getAttendee(attendeeId);
-        if (updatedAttendee) {
-          resolve(updatedAttendee);
-        } else {
-          reject(new Error('Failed to retrieve updated attendee'));
-        }
-      };
-
-      transaction.onerror = () => reject(transaction.error);
-    });
+    // Sync with Firebase
+    await this.syncAttendees();
   }
 
-  public async getAttendee(attendeeId: string): Promise<Attendee | null> {
-    if (!this.db) await this.initDatabase();
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['attendees'], 'readonly');
-      const store = transaction.objectStore('attendees');
-      const request = store.get(attendeeId);
+  public async deleteAttendee(attendeeId: string): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.db) throw new Error('Database not initialized');
 
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    });
+    const tx = this.db.transaction('attendees', 'readwrite');
+    await tx.store.delete(attendeeId);
+    await tx.done;
+
+    // Sync with Firebase
+    await this.firebaseService.deleteAttendee(attendeeId);
+  }
+
+  public async getAllAttendees(): Promise<Attendee[]> {
+    await this.ensureInitialized();
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.getAll('attendees');
+  }
+
+  public async getAttendees(eventId?: string): Promise<Attendee[]> {
+    await this.ensureInitialized();
+    const allAttendees = await this.getAllAttendees();
+    if (eventId) {
+      return allAttendees.filter(attendee => attendee.eventId === eventId);
+    }
+    return allAttendees;
   }
 
   public async hasAnyClasses(): Promise<boolean> {
-    const classes = await this.getClasses();
+    await this.ensureInitialized();
+    const classes = await this.getAllClasses();
     return classes.length > 0;
   }
 
-  private async syncWithServer(): Promise<void> {
-    if (!navigator.onLine || !this.db) return;
-
-    try {
-      // Get all pending changes from syncQueue
-      const pendingChanges = await this.getPendingChanges();
-      
-      if (pendingChanges.length === 0) {
-        // If there are no pending changes, just update the last sync time
-        this.updateLastSync();
-        return;
-      }
-
-      // Sort changes by timestamp
-      pendingChanges.sort((a, b) => 
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-      );
-
-      // In a real app, you would send these changes to the server
-      // For this demo, we'll simulate a successful sync after a delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Clear the sync queue after successful sync
-      await this.clearSyncQueue();
-      
-      // Update sync info
-      this.updateLastSync();
-      this.updatePendingChangesCount(0);
-      
-      console.log(`Synced ${pendingChanges.length} changes with server`);
-    } catch (error) {
-      console.error('Sync error:', error);
-    }
+  public subscribeSyncStatus(callback: (status: ConnectionStatus) => void): () => void {
+    this.syncStatusCallbacks.push(callback);
+    // Initial status
+    callback('online');
+    
+    return () => {
+      this.syncStatusCallbacks = this.syncStatusCallbacks.filter(cb => cb !== callback);
+    };
   }
 
-  private async getPendingChanges(): Promise<any[]> {
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['syncQueue'], 'readonly');
-      const store = transaction.objectStore('syncQueue');
-      const request = store.getAll();
-
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
+  public cleanup(): void {
+    this.unsubscribeCallbacks.forEach(unsubscribe => unsubscribe());
+    this.unsubscribeCallbacks = [];
+    this.syncStatusCallbacks = [];
   }
 
-  private async clearSyncQueue(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['syncQueue'], 'readwrite');
-      const store = transaction.objectStore('syncQueue');
-      const request = store.clear();
+  // Add methods to notify subscribers
+  private classSubscribers: ((classes: Class[]) => void)[] = [];
+  private eventSubscribers: ((events: Event[]) => void)[] = [];
+  private attendeeSubscribers: ((attendees: Attendee[]) => void)[] = [];
 
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
+  public subscribeToClasses(callback: (classes: Class[]) => void): () => void {
+    this.classSubscribers.push(callback);
+    return () => {
+      this.classSubscribers = this.classSubscribers.filter(cb => cb !== callback);
+    };
+  }
+
+  public subscribeToEvents(callback: (events: Event[]) => void): () => void {
+    this.eventSubscribers.push(callback);
+    return () => {
+      this.eventSubscribers = this.eventSubscribers.filter(cb => cb !== callback);
+    };
+  }
+
+  public subscribeToAttendees(callback: (attendees: Attendee[]) => void): () => void {
+    this.attendeeSubscribers.push(callback);
+    return () => {
+      this.attendeeSubscribers = this.attendeeSubscribers.filter(cb => cb !== callback);
+    };
+  }
+
+  private notifyClassesChange(classes: Class[]) {
+    this.classSubscribers.forEach(callback => callback(classes));
+  }
+
+  private notifyEventsChange(events: Event[]) {
+    this.eventSubscribers.forEach(callback => callback(events));
+  }
+
+  private notifyAttendeesChange(attendees: Attendee[]) {
+    this.attendeeSubscribers.forEach(callback => callback(attendees));
   }
 }
 
-// Create and export a singleton instance
-const dbService = new DbService();
+const dbService = DbService.getInstance();
 export default dbService;

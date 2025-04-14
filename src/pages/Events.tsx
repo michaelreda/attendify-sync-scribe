@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Event, CustomField, FieldType } from '../types';
+import { Event, CustomField, FieldType, Attendee } from '../types';
 import dbService from '../services/db.service';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -9,14 +9,15 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
-import { PlusCircle, Calendar, Lock, Trash, Plus, X, Pencil } from 'lucide-react';
+import { PlusCircle, Calendar, Lock, Trash, Plus, X, Pencil, Trash2, Users, CheckCircle, UserPlus, UserCheck } from 'lucide-react';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { Badge } from '@/components/ui/badge';
 
 // Admin password for creating events
 const ADMIN_PASSWORD = 'admin';
@@ -36,6 +37,7 @@ const eventFormSchema = z.object({
 
 const EventsPage: React.FC = () => {
   const [events, setEvents] = useState<Event[]>([]);
+  const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
@@ -47,6 +49,9 @@ const EventsPage: React.FC = () => {
   const [newFieldName, setNewFieldName] = useState('');
   const [newFieldRequired, setNewFieldRequired] = useState(false);
   const [newFieldOptions, setNewFieldOptions] = useState('');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingEvent, setDeletingEvent] = useState<Event | null>(null);
+  const navigate = useNavigate();
   
   const passwordForm = useForm<z.infer<typeof passwordSchema>>({
     resolver: zodResolver(passwordSchema),
@@ -74,6 +79,10 @@ const EventsPage: React.FC = () => {
       setIsLoading(true);
       const loadedEvents = await dbService.getEvents();
       setEvents(loadedEvents);
+      
+      // Load all attendees
+      const loadedAttendees = await dbService.getAllAttendees();
+      setAttendees(loadedAttendees);
     } catch (error) {
       console.error('Failed to load events:', error);
       toast({
@@ -246,6 +255,124 @@ const EventsPage: React.FC = () => {
     } catch (e) {
       return 'Invalid date';
     }
+  };
+  
+  const handleDeleteEvent = async () => {
+    if (!deletingEvent) return;
+    
+    try {
+      await dbService.deleteEvent(deletingEvent.id);
+      toast({
+        title: 'Event deleted successfully',
+        description: 'The event has been deleted and will sync when online'
+      });
+      setDeleteDialogOpen(false);
+      setDeletingEvent(null);
+      loadEvents();
+    } catch (error) {
+      console.error('Failed to delete event:', error);
+      toast({
+        title: 'Error deleting event',
+        description: 'Please try again',
+        variant: 'destructive'
+      });
+    }
+  };
+  
+  const renderEventCard = (event: Event) => {
+    const eventAttendees = attendees.filter(a => a.eventId === event.id);
+    const attendedCount = eventAttendees.filter(a => a.attended).length;
+    const totalCount = eventAttendees.length;
+
+    return (
+      <Card key={event.id} className="transition-all hover:shadow-md">
+        <CardHeader>
+          <div className="flex justify-between items-start">
+            <div>
+              <CardTitle>{event.name}</CardTitle>
+              <CardDescription>
+                {formatDate(event.date)}
+              </CardDescription>
+              <div className="mt-2 flex gap-2">
+                <Badge variant="outline" className="bg-attendify-50">
+                  <Users className="h-3 w-3 mr-1" />
+                  Total: {totalCount}
+                </Badge>
+                <Badge variant="outline" className="bg-green-50">
+                  <UserCheck className="h-3 w-3 mr-1" />
+                  Attended: {attendedCount}
+                </Badge>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setEditingEvent(event);
+                  setEditDialogOpen(true);
+                }}
+                className="h-8 w-8 rounded-full hover:bg-attendify-100"
+              >
+                <Pencil className="h-4 w-4" />
+                <span className="sr-only">Edit</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setDeletingEvent(event);
+                  setDeleteDialogOpen(true);
+                }}
+                className="h-8 w-8 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span className="sr-only">Delete</span>
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {event.customFields && event.customFields.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium">Custom Fields:</h4>
+                <div className="flex flex-wrap gap-2">
+                  {event.customFields.map((field) => (
+                    <Badge key={field.id} variant="outline">
+                      {field.name}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => navigate(`/attendance/${event.id}`)}
+              >
+                <CheckCircle className="mr-2 h-4 w-4" />
+                Take Attendance
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => navigate(`/attendees/${event.id}`)}
+              >
+                <Users className="mr-2 h-4 w-4" />
+                Manage Attendees
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => navigate(`/registration/${event.id}`)}
+              >
+                <UserPlus className="mr-2 h-4 w-4" />
+                Register
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
   };
   
   return (
@@ -754,15 +881,29 @@ const EventsPage: React.FC = () => {
               <CardHeader className="pb-3">
                 <div className="flex justify-between items-start">
                   <CardTitle className="text-lg font-semibold">{event.name}</CardTitle>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleEditEvent(event)}
-                    className="h-8 w-8 rounded-full"
-                  >
-                    <Pencil className="h-4 w-4" />
-                    <span className="sr-only">Edit</span>
-                  </Button>
+                  <div className="flex space-x-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleEditEvent(event)}
+                      className="h-8 w-8 rounded-full"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      <span className="sr-only">Edit</span>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        setDeletingEvent(event);
+                        setDeleteDialogOpen(true);
+                      }}
+                      className="h-8 w-8 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span className="sr-only">Delete</span>
+                    </Button>
+                  </div>
                 </div>
                 <CardDescription>{formatDate(event.date)}</CardDescription>
               </CardHeader>
@@ -800,6 +941,32 @@ const EventsPage: React.FC = () => {
           ))}
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Event</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {deletingEvent?.name}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setDeleteDialogOpen(false);
+              setDeletingEvent(null);
+            }}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={handleDeleteEvent}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

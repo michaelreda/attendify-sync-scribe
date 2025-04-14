@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { Event, Attendee, Class, CustomField } from '../types';
@@ -9,10 +8,10 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/ui/use-toast';
-import { ArrowLeft, Calendar, Search, CheckCircle, XCircle, UserCheck, GraduationCap, Users, UserPlus } from 'lucide-react';
+import { ArrowLeft, Calendar, Search, CheckCircle, XCircle, UserCheck, GraduationCap, Users, UserPlus, Check, X, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
-import EventSelectionPage from '@/components/EventSelectionPage';
 import ContactButtons from '@/components/ContactButtons';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 // Helper function to get value from an attendee's values by field ID
 const getAttendeeValue = (attendee: Attendee, fieldId: string): string => {
@@ -33,6 +32,7 @@ const AttendancePage: React.FC = () => {
   const [filteredAttendees, setFilteredAttendees] = useState<Attendee[]>([]);
   const [classes, setClasses] = useState<Record<string, Class>>({});
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [nameFieldId, setNameFieldId] = useState<string | null>(null);
   const [phoneFields, setPhoneFields] = useState<CustomField[]>([]);
@@ -103,30 +103,56 @@ const AttendancePage: React.FC = () => {
     loadData();
   }, [eventId, navigate]);
   
+  // Add effect to listen for sync status changes
   useEffect(() => {
-    // Filter attendees based on search query
-    if (!searchQuery.trim()) {
-      setFilteredAttendees(attendees);
-      return;
+    const unsubscribe = dbService.subscribeSyncStatus((info) => {
+      // If we were offline and just came back online, or if sync just completed
+      if (info.status === 'online' && info.pendingChanges === 0) {
+        loadData();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [eventId]);
+  
+  useEffect(() => {
+    // Filter attendees based on search query and selected class
+    let filtered = attendees;
+    
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(attendee => {
+        return attendee.values.some(valueObj => {
+          const stringValue = String(valueObj.value).toLowerCase();
+          return stringValue.includes(query);
+        }) || 
+        (classes[attendee.classId]?.name.toLowerCase().includes(query));
+      });
     }
     
-    const query = searchQuery.toLowerCase().trim();
-    const filtered = attendees.filter(attendee => {
-      // Search in all field values
-      return attendee.values.some(valueObj => {
-        const stringValue = String(valueObj.value).toLowerCase();
-        return stringValue.includes(query);
-      }) || 
-      // Also search in class name
-      (classes[attendee.classId]?.name.toLowerCase().includes(query));
-    });
+    if (selectedClassId) {
+      filtered = filtered.filter(attendee => attendee.classId === selectedClassId);
+    }
     
     setFilteredAttendees(filtered);
-  }, [searchQuery, attendees, classes]);
+  }, [searchQuery, attendees, classes, selectedClassId]);
   
   const handleAttendanceToggle = async (attendeeId: string, currentStatus: boolean) => {
     try {
-      await dbService.updateAttendeeStatus(attendeeId, !currentStatus);
+      // Find the attendee in the current state
+      const attendee = attendees.find(a => a.id === attendeeId);
+      if (!attendee) {
+        throw new Error('Attendee not found');
+      }
+
+      // Create updated attendee object
+      const updatedAttendee = {
+        ...attendee,
+        attended: !currentStatus,
+        updatedAt: new Date().toISOString()
+      };
+
+      await dbService.updateAttendee(updatedAttendee);
       
       // Update local state
       setAttendees(prev => 
@@ -170,6 +196,70 @@ const AttendancePage: React.FC = () => {
     } catch (e) {
       return 'Invalid date';
     }
+  };
+  
+  const renderAttendeeRow = (attendee: Attendee) => {
+    const classInfo = classes[attendee.classId];
+    const customFields = event?.customFields || [];
+    const servantNames = classInfo?.servants?.map(servant => servant.name).join(', ') || 'No servants assigned';
+    
+    return (
+      <div key={attendee.id} className="flex items-center justify-between p-4 border-b hover:bg-muted/50 transition-colors">
+        <div className="flex-1">
+          <div className="flex items-center space-x-2">
+            <div className="font-medium">{getAttendeeDisplayName(attendee)}</div>
+            {classInfo && (
+              <Badge variant="outline" className="bg-attendify-50">
+                <GraduationCap className="h-3 w-3 mr-1" />
+                {classInfo.name}
+                {classInfo.grade && ` (${classInfo.grade})`}
+              </Badge>
+            )}
+          </div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            <span className="font-medium">Servants:</span> {servantNames}
+          </div>
+          {customFields.length > 0 && (
+            <div className="mt-1 space-y-0.5">
+              {customFields
+                .filter(field => 
+                  field.name.toLowerCase() !== 'name' && 
+                  field.name.toLowerCase() !== 'full name'
+                )
+                .map((field, index) => (
+                <div key={index} className="text-sm text-muted-foreground">
+                  <span className="font-medium">{field.name}:</span>{' '}
+                  <span>{getAttendeeValue(attendee, field.id) || 'Not provided'}</span>
+                  {isPhoneField(field) && getAttendeeValue(attendee, field.id) && (
+                    <ContactButtons phoneNumber={getAttendeeValue(attendee, field.id)} />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center space-x-2">
+          <Button
+            variant={attendee.attended ? "default" : "outline"}
+            size="sm"
+            onClick={() => handleAttendanceToggle(attendee.id, attendee.attended)}
+            className={attendee.attended ? "bg-green-600 hover:bg-green-700" : ""}
+          >
+            {attendee.attended ? (
+              <>
+                <Check className="w-4 h-4 mr-2" />
+                Attended
+              </>
+            ) : (
+              <>
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Mark Present
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+    );
   };
   
   // This is the event selection page shown when no event is specified
@@ -217,195 +307,89 @@ const AttendancePage: React.FC = () => {
   }
   
   return (
-    <div className="space-y-6">
-      <div className="flex items-center space-x-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => navigate('/attendance')}
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Events
-        </Button>
-      </div>
-      
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Take Attendance</h1>
-        <div className="flex items-center justify-between">
-          <p className="text-muted-foreground">{event?.name} • {formatDate(event?.date || '')}</p>
-          <div className="flex items-center space-x-2 text-muted-foreground">
-            <UserPlus className="h-5 w-5" />
-            <span>
-              <span className="font-semibold">{filteredAttendees.filter(a => a.attended).length}</span>
-              {' '}of{' '}
-              <span className="font-semibold">{filteredAttendees.length}</span>{' '}
-              attended
-            </span>
-          </div>
+    <div className="container mx-auto py-8">
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-3xl font-bold">Attendance</h1>
+          <p className="text-muted-foreground">
+            {event ? `Taking attendance for ${event.name}` : 'Select an event to take attendance'}
+          </p>
+          {event && (
+            <div className="mt-2 flex items-center gap-4">
+              <Badge variant="outline" className="bg-attendify-50">
+                <UserCheck className="h-3 w-3 mr-1" />
+                {attendees.filter(a => a.attended).length} / {attendees.length} attended
+              </Badge>
+            </div>
+          )}
         </div>
+        {event && (
+          <Button 
+            variant="outline"
+            onClick={() => navigate('/events')}
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Change Event
+          </Button>
+        )}
       </div>
-      
-      <div className="flex items-center space-x-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Search attendees..."
-            className="pl-9"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+
+      {!event ? (
+        <div className="text-center py-12">
+          <p className="text-muted-foreground">Please select an event to take attendance</p>
         </div>
-        
-        <div className="flex items-center text-sm text-muted-foreground">
-          <span className="font-medium">{filteredAttendees.length}</span>
-          <span className="mx-1">of</span>
-          <span className="font-medium">{attendees.length}</span>
-          <span className="hidden sm:inline ml-1">attendees</span>
-        </div>
-      </div>
-      
-      {attendees.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center h-40 p-6">
-            <UserCheck className="h-12 w-12 text-attendify-400 mb-4" />
-            <CardDescription className="text-center">
-              No attendees have been registered for this event yet.
-            </CardDescription>
-            <Button
-              className="mt-4 bg-attendify-600 hover:bg-attendify-700"
-              onClick={() => navigate(`/register/${eventId}`)}
-            >
-              Register Attendees
-            </Button>
-          </CardContent>
-        </Card>
-      ) : filteredAttendees.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center h-40 p-6">
-            <Search className="h-12 w-12 text-attendify-400 mb-4" />
-            <CardDescription className="text-center">
-              No attendees match your search. Try a different search term.
-            </CardDescription>
-            <Button
-              className="mt-4"
-              variant="outline"
-              onClick={() => setSearchQuery('')}
-            >
-              Clear Search
-            </Button>
-          </CardContent>
-        </Card>
       ) : (
-        <div className="space-y-4">
-          {filteredAttendees.map(attendee => {
-            const attendeeClass = classes[attendee.classId];
-            
-            return (
-              <div 
-                key={attendee.id}
-                className={`p-4 rounded-lg border transition-colors ${
-                  attendee.attended 
-                    ? 'bg-attendify-50 border-attendify-200' 
-                    : 'bg-white border-gray-200'
-                }`}
+        <>
+          <div className="mb-6">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <Input
+                type="text"
+                placeholder="Search attendees..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+          </div>
+
+          {/* Class Filter Badges */}
+          <div className="flex flex-wrap gap-2 mb-6">
+            <Badge
+              variant={selectedClassId === null ? "default" : "outline"}
+              className="cursor-pointer hover:bg-attendify-100"
+              onClick={() => setSelectedClassId(null)}
+            >
+              All Classes
+            </Badge>
+            {Object.values(classes).map((cls) => (
+              <Badge
+                key={cls.id}
+                variant={selectedClassId === cls.id ? "default" : "outline"}
+                className="cursor-pointer hover:bg-attendify-100"
+                onClick={() => setSelectedClassId(cls.id)}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <h3 className="font-medium">
-                      {getAttendeeDisplayName(attendee)}
-                    </h3>
-                    
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {attendeeClass && (
-                        <Badge 
-                          variant="outline" 
-                          className="bg-attendify-50 text-xs flex items-center"
-                        >
-                          <Users className="h-3 w-3 mr-1" />
-                          {attendeeClass.name}
-                          {attendeeClass.grade && (
-                            <span className="ml-1 flex items-center">
-                              <GraduationCap className="h-3 w-3 mx-1" />
-                              {attendeeClass.grade}
-                            </span>
-                          )}
-                        </Badge>
-                      )}
-                    </div>
-                    
-                    {attendeeClass && attendeeClass.servants.length > 0 && (
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        <span className="font-medium">Servants:</span> {attendeeClass.servants.join(', ')}
-                      </div>
-                    )}
-                    
-                    <div className="mt-2 text-sm text-muted-foreground space-y-1">
-                      {event.customFields
-                        .filter(field => {
-                          // Skip name field as it's already shown and skip phone fields as they are handled separately
-                          return field.id !== nameFieldId && field.type !== 'phone';
-                        })
-                        .map(field => {
-                          const value = getAttendeeValue(attendee, field.id);
-                          if (!value) return null;
-                          
-                          return (
-                            <div key={field.id}>
-                              <span className="font-medium">{field.name}:</span> {value}
-                            </div>
-                          );
-                        })}
+                <GraduationCap className="h-3 w-3 mr-1" />
+                {cls.name}
+                {cls.grade && ` (${cls.grade})`}
+              </Badge>
+            ))}
+          </div>
 
-                        {/* Display phone fields and contact buttons */}
-                        {event.customFields
-                          .filter(isPhoneField)
-                          .map(field => {
-                            const phoneValue = getAttendeeValue(attendee, field.id);
-                            if (!phoneValue) return null;
-
-                            return (
-                              <div key={field.id} className="flex items-center mt-1">
-                                <div>
-                                  <span className="font-medium">{field.name}:</span> {phoneValue}
-                                </div>
-                                <div className="ml-2">
-                                  <ContactButtons phoneNumber={phoneValue} />
-                                </div>
-                              </div>
-                            );
-                          })
-                        }
-
-                    </div>
-                  </div>
-                  
-                  <Button
-                    variant={attendee.attended ? "default" : "outline"}
-                    size="sm"
-                    className={attendee.attended 
-                      ? "bg-green-600 hover:bg-green-700" 
-                      : "text-muted-foreground"
-                    }
-                    onClick={() => handleAttendanceToggle(attendee.id, attendee.attended)}
-                  >
-                    {attendee.attended ? (
-                      <>
-                        <CheckCircle className="mr-1 h-4 w-4" />
-                        Present
-                      </>
-                    ) : (
-                      <>
-                        <XCircle className="mr-1 h-4 w-4" />
-                        Mark Present
-                      </>
-                    )}
-                  </Button>
-                </div>
+          <div className="space-y-4">
+            {filteredAttendees.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-muted-foreground">
+                  {searchQuery
+                    ? 'No attendees found matching your search'
+                    : 'No attendees registered for this event'}
+                </p>
               </div>
-            );
-          })}
-        </div>
+            ) : (
+              filteredAttendees.map(renderAttendeeRow)
+            )}
+          </div>
+        </>
       )}
     </div>
   );
