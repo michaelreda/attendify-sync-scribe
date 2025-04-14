@@ -37,6 +37,64 @@ const AttendancePage: React.FC = () => {
   const [nameFieldId, setNameFieldId] = useState<string | null>(null);
   const [phoneFields, setPhoneFields] = useState<CustomField[]>([]);
   
+  const loadData = async () => {
+    if (!eventId) return;
+    
+    try {
+      setIsLoading(true);
+      
+      // Load the event details
+      const eventData = await dbService.getEvent(eventId);
+      if (!eventData) {
+        toast({
+          title: 'Event not found',
+          description: 'The requested event does not exist',
+          variant: 'destructive'
+        });
+        navigate('/attendance');
+        return;
+      }
+      
+      setEvent(eventData);
+      
+      // Find name field ID for easy access
+      const nameField = eventData.customFields.find(field => 
+        field.name.toLowerCase() === 'name' || 
+        field.name.toLowerCase() === 'full name'
+      );
+      
+      if (nameField) {
+        setNameFieldId(nameField.id);
+      }
+      
+      // Find phone fields
+      const phoneFieldsList = eventData.customFields.filter(field => field.type === 'phone');
+      setPhoneFields(phoneFieldsList);
+      
+      // Load attendees for this event
+      const attendeesData = await dbService.getAttendees(eventId);
+      setAttendees(attendeesData);
+      setFilteredAttendees(attendeesData);
+      
+      // Load all classes for reference
+      const classesData = await dbService.getClasses();
+      const classesMap: Record<string, Class> = {};
+      classesData.forEach(cls => {
+        classesMap[cls.id] = cls;
+      });
+      setClasses(classesMap);
+    } catch (error) {
+      console.error('Failed to load data:', error);
+      toast({
+        title: 'Error loading data',
+        description: 'Please try again',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
   useEffect(() => {
     // If no eventId is provided, redirect to event selection
     if (!eventId) {
@@ -44,64 +102,20 @@ const AttendancePage: React.FC = () => {
       return;
     }
     
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
-        
-        // Load the event details
-        const eventData = await dbService.getEvent(eventId);
-        if (!eventData) {
-          toast({
-            title: 'Event not found',
-            description: 'The requested event does not exist',
-            variant: 'destructive'
-          });
-          navigate('/attendance');
-          return;
-        }
-        
-        setEvent(eventData);
-        
-        // Find name field ID for easy access
-        const nameField = eventData.customFields.find(field => 
-          field.name.toLowerCase() === 'name' || 
-          field.name.toLowerCase() === 'full name'
-        );
-        
-        if (nameField) {
-          setNameFieldId(nameField.id);
-        }
-        
-        // Find phone fields
-        const phoneFieldsList = eventData.customFields.filter(field => field.type === 'phone');
-        setPhoneFields(phoneFieldsList);
-        
-        // Load attendees for this event
-        const attendeesData = await dbService.getAttendees(eventId);
-        setAttendees(attendeesData);
-        setFilteredAttendees(attendeesData);
-        
-        // Load all classes for reference
-        const classesData = await dbService.getClasses();
-        const classesMap: Record<string, Class> = {};
-        classesData.forEach(cls => {
-          classesMap[cls.id] = cls;
-        });
-        setClasses(classesMap);
-      } catch (error) {
-        console.error('Failed to load data:', error);
-        toast({
-          title: 'Error loading data',
-          description: 'Please try again',
-          variant: 'destructive'
-        });
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
     loadData();
   }, [eventId, navigate]);
+
+  // Subscribe to attendee changes
+  useEffect(() => {
+    const unsubscribe = dbService.subscribeToAttendees((updatedAttendees) => {
+      // Filter attendees for the current event
+      const eventAttendees = updatedAttendees.filter(a => a.eventId === eventId);
+      setAttendees(eventAttendees);
+      setFilteredAttendees(eventAttendees);
+    });
+
+    return () => unsubscribe();
+  }, [eventId]);
   
   // Add effect to listen for sync status changes
   useEffect(() => {
