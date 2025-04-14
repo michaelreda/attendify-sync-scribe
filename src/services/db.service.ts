@@ -24,10 +24,18 @@ class DbService {
   private unsubscribeCallbacks: (() => void)[] = [];
   private syncStatusCallbacks: ((status: ConnectionStatus) => void)[] = [];
   private initPromise: Promise<void> | null = null;
+  private lastSyncTimestamp: string | null = null;
+  private syncInterval: NodeJS.Timeout | null = null;
 
   private constructor() {
     this.firebaseService = FirebaseService.getInstance();
     this.initPromise = this.initializeDB();
+    this.startPeriodicSync();
+
+    // Subscribe to Firebase connection status
+    this.firebaseService.subscribeToConnectionStatus((status) => {
+      this.notifySyncStatus(status);
+    });
   }
 
   public static getInstance(): DbService {
@@ -115,6 +123,11 @@ class DbService {
       });
 
       this.unsubscribeCallbacks.push(classesUnsubscribe, eventsUnsubscribe, attendeesUnsubscribe);
+
+      // Perform initial sync check
+      if (this.firebaseService.isConnected()) {
+        await this.syncAllData();
+      }
     } catch (error) {
       console.error('Error initializing database:', error);
       throw error;
@@ -150,6 +163,28 @@ class DbService {
     return data;
   }
 
+  private updateLastSync() {
+    this.lastSyncTimestamp = new Date().toISOString();
+    this.notifySyncStatus('online');
+  }
+
+  private notifySyncStatus(status: ConnectionStatus) {
+    this.syncStatusCallbacks.forEach(callback => callback(status));
+  }
+
+  public subscribeSyncStatus(callback: (status: ConnectionStatus) => void): () => void {
+    this.syncStatusCallbacks.push(callback);
+    // Immediately notify with current status
+    callback(this.firebaseService.isConnected() ? 'online' : 'offline');
+    return () => {
+      this.syncStatusCallbacks = this.syncStatusCallbacks.filter(cb => cb !== callback);
+    };
+  }
+
+  public getLastSync(): string | null {
+    return this.lastSyncTimestamp;
+  }
+
   private async syncClasses() {
     try {
       const localClasses = await this.getAllClasses();
@@ -178,6 +213,7 @@ class DbService {
       // Sync only if there are actual changes
       if (localOnly.length > 0 || remoteOnly.length > 0 || toUpdate.length > 0) {
         await this.firebaseService.syncClasses(cleanedLocalClasses);
+        this.updateLastSync();
       }
     } catch (error) {
       console.error('Error syncing classes:', error);
@@ -213,6 +249,7 @@ class DbService {
       // Sync only if there are actual changes
       if (localOnly.length > 0 || remoteOnly.length > 0 || toUpdate.length > 0) {
         await this.firebaseService.syncEvents(cleanedLocalEvents);
+        this.updateLastSync();
       }
     } catch (error) {
       console.error('Error syncing events:', error);
@@ -248,6 +285,7 @@ class DbService {
       // Sync only if there are actual changes
       if (localOnly.length > 0 || remoteOnly.length > 0 || toUpdate.length > 0) {
         await this.firebaseService.syncAttendees(cleanedLocalAttendees);
+        this.updateLastSync();
       }
     } catch (error) {
       console.error('Error syncing attendees:', error);
@@ -469,21 +507,12 @@ class DbService {
     return classes.length > 0;
   }
 
-  public subscribeSyncStatus(callback: (status: ConnectionStatus) => void): () => void {
-    this.syncStatusCallbacks.push(callback);
-    
-    // Subscribe to Firebase connection status
-    const unsubscribe = this.firebaseService.subscribeToConnectionStatus((status) => {
-      callback(status);
-    });
-    
-    return () => {
-      this.syncStatusCallbacks = this.syncStatusCallbacks.filter(cb => cb !== callback);
-      unsubscribe();
-    };
-  }
-
   public cleanup(): void {
+    // Clear the interval when cleaning up
+    if (this.syncInterval) {
+      clearInterval(this.syncInterval);
+      this.syncInterval = null;
+    }
     this.unsubscribeCallbacks.forEach(unsubscribe => unsubscribe());
     this.unsubscribeCallbacks = [];
     this.syncStatusCallbacks = [];
@@ -525,6 +554,68 @@ class DbService {
 
   private notifyAttendeesChange(attendees: Attendee[]) {
     this.attendeeSubscribers.forEach(callback => callback(attendees));
+  }
+
+  private async syncAllData() {
+    try {
+      const [localClasses, remoteClasses] = await Promise.all([
+        this.getAllClasses(),
+        this.firebaseService.getClasses()
+      ]);
+      const [localEvents, remoteEvents] = await Promise.all([
+        this.getAllEvents(),
+        this.firebaseService.getEvents()
+      ]);
+      const [localAttendees, remoteAttendees] = await Promise.all([
+        this.getAllAttendees(),
+        this.firebaseService.getAttendees()
+      ]);
+
+      // Clean all data for comparison
+      const cleanedLocalClasses = this.cleanDataForFirebase(localClasses);
+      const cleanedRemoteClasses = this.cleanDataForFirebase(remoteClasses);
+      const cleanedLocalEvents = this.cleanDataForFirebase(localEvents);
+      const cleanedRemoteEvents = this.cleanDataForFirebase(remoteEvents);
+      const cleanedLocalAttendees = this.cleanDataForFirebase(localAttendees);
+      const cleanedRemoteAttendees = this.cleanDataForFirebase(remoteAttendees);
+
+      // Check if data is in sync
+      const classesInSync = JSON.stringify(cleanedLocalClasses) === JSON.stringify(cleanedRemoteClasses);
+      const eventsInSync = JSON.stringify(cleanedLocalEvents) === JSON.stringify(cleanedRemoteEvents);
+      const attendeesInSync = JSON.stringify(cleanedLocalAttendees) === JSON.stringify(cleanedRemoteAttendees);
+
+      // If all data is in sync, update last sync timestamp
+      if (classesInSync && eventsInSync && attendeesInSync) {
+        this.updateLastSync();
+      } else {
+        // If data is not in sync, perform sync operations
+        if (!classesInSync) {
+          await this.syncClasses();
+        }
+        if (!eventsInSync) {
+          await this.syncEvents();
+        }
+        if (!attendeesInSync) {
+          await this.syncAttendees();
+        }
+      }
+    } catch (error) {
+      console.error('Error during periodic sync:', error);
+    }
+  }
+
+  private startPeriodicSync() {
+    // Clear any existing interval
+    if (this.syncInterval) {
+      clearInterval(this.syncInterval);
+    }
+
+    // Start new interval
+    this.syncInterval = setInterval(async () => {
+      if (this.firebaseService.isConnected()) {
+        await this.syncAllData();
+      }
+    }, 30000); // 30 seconds
   }
 }
 

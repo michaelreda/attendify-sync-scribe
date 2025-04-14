@@ -23,7 +23,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     const unsubscribe = dbService.subscribeSyncStatus((status) => {
       setSyncInfo(prev => ({
         ...prev,
-        status
+        status,
+        lastSync: dbService.getLastSync()
       }));
     });
 

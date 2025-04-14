@@ -45,19 +45,24 @@ export class FirebaseService {
   }
 
   private connectionStatusCallbacks: ((status: 'online' | 'offline') => void)[] = [];
+  private currentStatus: 'online' | 'offline' = 'offline';
 
   public subscribeToConnectionStatus(callback: (status: 'online' | 'offline') => void): () => void {
     this.connectionStatusCallbacks.push(callback);
-    // Initial status
-    callback('online');
-    
+    // Immediately notify with current status
+    callback(this.currentStatus);
     return () => {
       this.connectionStatusCallbacks = this.connectionStatusCallbacks.filter(cb => cb !== callback);
     };
   }
 
   private notifyConnectionStatus(status: 'online' | 'offline') {
+    this.currentStatus = status;
     this.connectionStatusCallbacks.forEach(callback => callback(status));
+  }
+
+  public isConnected(): boolean {
+    return this.currentStatus === 'online';
   }
 
   public onClassesChange(callback: (classes: Class[]) => void): () => void {
